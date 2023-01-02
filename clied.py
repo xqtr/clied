@@ -11,6 +11,7 @@ from subprocess import check_output
 import datetime
 from time import sleep
 import pyperclip
+import socket
 
 COLOR_SCHEME = {
   Token:              ('gray',                 'gray'),
@@ -29,6 +30,7 @@ COLOR_SCHEME = {
 }
 
 colors = {
+ 'reverse':'\x1b[7m',
  'reset':"\033[0m",
   0:"\033[0;30m",
   1:"\033[0;34m",
@@ -170,6 +172,19 @@ GPL_NOTICE = '''
  * 
  */
 '''
+
+def get_ip():
+  s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+  s.settimeout(0)
+  try:
+    # doesn't even have to be reachable
+    s.connect(('10.254.254.254', 1))
+    IP = s.getsockname()[0]
+  except Exception:
+    IP = '127.0.0.1'
+  finally:
+    s.close()
+  return IP
 
 class Editor():
   def __init__(self):
@@ -394,7 +409,7 @@ class Editor():
     status = '\x1b[7m'
     status += "^H:Help |"
     status += '^' if self.modified else ' '
-    status += self.filename[:20].ljust(20) + ' | ' + str(self.total_lines) + ' lines'
+    status += self.filename[:20].ljust(20) + ' | ' + str(self.total_lines) + ' lines'+'|'+self.msg 
     
     
     ps = '| '+self.filetype.upper()+' '
@@ -415,7 +430,7 @@ class Editor():
     status += ps + ' '
     status += '\x1b[m'
     status += '\x1b[' + str(self.cury - self.offy+1) + ';' + str(self.curx - self.offx+1) + 'H'
-    status += '\x1b[?25h'
+    status += '\x1b[?25h'+colors['reset']
     return status
 
   def print_buffer(self):
@@ -514,17 +529,20 @@ class Editor():
     self.ROWS -= 1
     self.screen.refresh()
     self.update_screen()
+    
+    
+  def docommand(self):
+    cmd = self.command_prompt('command: ',recomend=True)
+    if cmd:
+      self.history.append(cmd)
+      self.command(cmd)
 
   def read_keyboard(self):
     def ctrl(c): return ((c) & 0x1f)
     c = -1
     while (c == -1): c = self.screen.getch()
     if c == ctrl(ord('q')): self.exit()
-    elif c == ctrl(ord('x')) or c == 27: 
-      cmd = self.command_prompt('command: ')
-      if cmd: 
-        self.history.append(cmd)
-        self.command(cmd)
+    elif c == ctrl(ord('x')) or c == 27: self.docommand()      
     elif c == 9: [self.insert_char(' ') for i in range(self.tab)] #TAB KEY
     elif c == curses.KEY_BTAB: [self.delete_char() for i in range(self.tab) if self.curx]
     elif c == ctrl(ord('n')): self.new_file()
@@ -578,8 +596,37 @@ class Editor():
     sleep(2)
     #sys.stdout.write(command_line)
     #sys.stdout.flush()
-
-  def command_prompt(self, prompt,value=''):
+    
+  def dorecommend(self,word,cursorpos,force=False,RECOMEND=[]):
+    if not RECOMEND: return
+    rec = []
+    word = word.upper()
+    words = ''
+    
+    if force:
+      for w in RECOMEND:
+        rec.append(w)
+        if len(words)+len(w)+1<self.COLS:
+          words += ' '+w
+    else:
+      for w in RECOMEND:
+        if word in w.upper():
+          rec.append(w)
+          if len(words)+len(w)+1<self.COLS:
+            words += ' '+w
+    
+    while len(words)<self.COLS: words += ' '
+    
+    if not rec: return
+    
+    line = '\x1b['+str(self.ROWS)+';1H'
+    line += colors[0]+colors[22]+words
+    line += '\x1b['+str(self.ROWS+1)+';'+str(cursorpos+1)+'H'+colors['reset']+colors['reverse']
+    sys.stdout.write(line)
+    sys.stdout.flush()
+    
+  def command_prompt(self, prompt,value='',recomend=False):
+    recomended = []
     self.clear_prompt(prompt)
     self.screen.refresh()
     word = ''; c = -1; pos = 0
@@ -635,6 +682,79 @@ class Editor():
         sys.stdout.write(chr(c))
         sys.stdout.flush()
         word += chr(c)
+        
+      try:
+        if recomend:
+          recomended.clear()
+          parts = str(word).split()
+          if len(parts)==1:
+            recomended = ['time','save','extract','exit','quit','width','filetype','fl', \
+            'align','al','strip','st','ascii','ansi','clear','reset','commend','cm',\
+            'uncomment','date','dt','line','repeat','rep','indent','ind','delete','del',\
+            'copy','cp','paste','pt','get','insert','mci','box','menul','menuc']
+            self.dorecommend(word,pos+len(prompt),RECOMEND=recomended)
+          else:
+            if parts[0].upper() in ['ALIGN','AL']:
+              recomended=['align <left|right|center> [lines] : align text for line(s)']
+              self.dorecommend(word,pos+len(prompt),True,RECOMEND=recomended)
+            elif parts[0].upper() in ['STRIP','ST']:
+              recomended=['strip <left|right|center> [lines|all] : strip text for line(s)']
+              self.dorecommend(word,pos+len(prompt),True,RECOMEND=recomended)
+            elif parts[0].upper() in ['INSERT','INS']:
+              recomended=['insert <gpl|bsd|blog|script|html|python|pascal> : insert text template']
+              self.dorecommend(word,pos+len(prompt),True,RECOMEND=recomended)
+            elif parts[0].upper() in ['FILETYPE','FL']:
+              recomended=['pascal','python','c','bas','delphi','text','bbcode','html','none','bash']
+              self.dorecommend(word,pos+len(prompt),True,RECOMEND=recomended)
+            elif parts[0].upper() in ['ASCII']:
+              recomended=['type ascii number of the character you want']
+              self.dorecommend(word,pos+len(prompt),True,RECOMEND=recomended)
+            elif parts[0].upper() in ['WIDTH']:
+              recomended=['width <num> : set document width to <num> cols']
+              self.dorecommend(word,pos+len(prompt),True,RECOMEND=recomended)
+            elif parts[0].upper() in ['INDENT','IND']:
+              recomended=['indent <rows> <cols> [+/-] : indent <cols> for <rows> from current position']
+              self.dorecommend(word,pos+len(prompt),True,RECOMEND=recomended)
+            elif parts[0].upper() in ['LINE','REPEAT','REP']:
+              recomended=['repeat <cols> <char> : repeat <char> for <cols> times']
+              self.dorecommend(word,pos+len(prompt),True,RECOMEND=recomended)
+            elif parts[0].upper() in ['COMMENT','CM']:
+              recomended=['comment <num> : comment <num> lines']
+              self.dorecommend(word,pos+len(prompt),True,RECOMEND=recomended)
+            elif parts[0].upper() in ['UNCOMMENT']:
+              recomended=['uncomment <num> : comment <num> lines']
+              self.dorecommend(word,pos+len(prompt),True,RECOMEND=recomended)
+            elif parts[0].upper() in ['EXTRACT']:
+              recomended=['extract <num|all> : saves <num> lines to a file']
+              self.dorecommend(word,pos+len(prompt),True,RECOMEND=recomended)
+            elif parts[0].upper() in ['BASH']:
+              recomended=['bash : inserts output of a BASH command']
+              self.dorecommend(word,pos+len(prompt),True,RECOMEND=recomended)
+            elif parts[0].upper() in ['DELETE','DEL']:
+              recomended=['delete <num|all> : delete <num> lines']
+              self.dorecommend(word,pos+len(prompt),True,RECOMEND=recomended)
+            elif parts[0].upper() in ['COPY','CP']:
+              recomended=['copy <num|all> : copy <num> lines to clipboard']
+              self.dorecommend(word,pos+len(prompt),True,RECOMEND=recomended)
+            elif parts[0].upper() in ['PASTE','PT']:
+              recomended=['paste : paste from clipboard in current position']
+              self.dorecommend(word,pos+len(prompt),True,RECOMEND=recomended)
+            elif parts[0].upper() in ['GET']:
+              recomended=['get <url|file> : inserts a local file or from the internet']
+              self.dorecommend(word,pos+len(prompt),True,RECOMEND=recomended)
+            elif parts[0].upper() in ['ANSI']:
+              recomended=['black','blue','red','grey','...','lightblue','lightred','...','white','reset']
+              self.dorecommend(word,pos+len(prompt),True,RECOMEND=recomended)
+            elif parts[0].upper() in ['MCI']:
+              recomended=['mci <code> : inserts a mystic bbs MCI code, if supported']
+              self.dorecommend(word,pos+len(prompt),True,RECOMEND=recomended)
+            elif parts[0].upper() in ['BOX']:
+              recomended=['box <type> : inserts an ASCII box']
+              self.dorecommend(word,pos+len(prompt),True,RECOMEND=recomended)
+            elif parts[0].upper() in ['MENUC','MENUL']:
+              recomended=['menu [header] [option1] [option2] .. : inserts a menu box']
+              self.dorecommend(word,pos+len(prompt),True,RECOMEND=recomended)
+      except: pass
     self.update_screen()
     self.screen.refresh()
     return word
@@ -670,9 +790,17 @@ class Editor():
     elif cmd == 'STRIP' or cmd == 'ST':
       self.strip(params)
     elif cmd == 'ASCII': # ASCII [char-num]
-      self.insert_char(params)
-    elif cmd == 'ANSI': # ASCII [char-num]
+      self.insert_char(chr(int(params)))
+    elif cmd == 'ANSI': # ANSI Color
       self.ansicolor(params)
+    elif cmd == 'MCI': 
+      self.mci(params)
+    elif cmd == 'MENUC': 
+      self.box(params,1)
+    elif cmd == 'MENUL': 
+      self.box(params,2)
+    elif cmd == 'BOX': 
+      self.box2(params)
     elif cmd == 'CLEAR' or cmd == 'RESET': # Reset the editor
       self.new_file()
     elif cmd == 'COMMENT' or cmd == 'CM':
@@ -697,11 +825,104 @@ class Editor():
       self.get_file(params)
     else:
       self.show_prompt('Command not recognized!')
+
+  def box2(self,params):
+    if params=='1':
+      line='''   + --- --  -   .     -        ---    ---    ---        -     .    - -- --- ´
+   |                                                                         |
+   ;                                                                         ;
+   :                                                                         :
+   .                                                                         .
+   ;                                                                         ;
+   |                                                                         |
+   + --- --  -   .     -        ---    ---    ---        -     .    - -- --- ´'''
+    elif params=='2':
+      line='''           █▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ Command Options ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▄
+           █                                                         █
+           █ Command    │ (  )                                       █
+           █ Data       │                                            █
+           █ Access     │                                            █
+           █ Grid Event │ Selected                                   █
+           █                                                         █
+           ▀▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄█'''
+   
+    self.insert_paragraph(line)
+
+  def box(self,params,align=1):
+    parts = params.split()
+    items=[]
+    line = ''
+    header = 'Header'
+    if len(parts)>=1:
+      header = parts[0]
+    width = len(header)+14
+    
+    if len(parts)>=2:
+      for p in range(1,len(parts)):
+        items.append(parts[p])
+        if len(parts[p])+2>width: width = len(parts[p])+2
+    
+    if not items: items.append(' ')
+    
+    line = ' '+header+' '
+    if align == 1:
+      line = '.' +line.center(width-2,'-')+ '.\n'
+      for item in items:
+        line += "|" + item.center(width-2,' ')+"|\n"
+      line += "`" + "".center(width-2,'-')+"'\n"
+    elif align == 2:
+      line = '.-' +line.ljust(width-3,'-')+ '.\n'
+      for item in items:
+        line += "| " + item.ljust(width-3,' ')+"|\n"
+      line += "`" + "".ljust(width-2,'-')+"'\n"
+    self.insert_paragraph(line)
+    
       
   def insert_paragraph(self,s):
     for line in s.splitlines():
       self.insert_strln(line)
       self.modified+=1
+      
+  def mci(self,params):
+    codes = params.upper()
+    index = 0
+    while index<len(codes):
+      code = codes[index:index+2]
+      self.msg = code
+      if code=='00': self.insert_str(colors[int(code)])
+      elif code=='01': self.insert_str(colors[int(code)])
+      elif code=='02': self.insert_str(colors[int(code)])
+      elif code=='03': self.insert_str(colors[int(code)])
+      elif code=='04': self.insert_str(colors[int(code)])
+      elif code=='05': self.insert_str(colors[int(code)])
+      elif code=='06': self.insert_str(colors[int(code)])
+      elif code=='07': self.insert_str(colors[int(code)])
+      elif code=='08': self.insert_str(colors[int(code)])
+      elif code=='09': self.insert_str(colors[int(code)])
+      elif code=='10': self.insert_str(colors[int(code)])
+      elif code=='11': self.insert_str(colors[int(code)])
+      elif code=='12': self.insert_str(colors[int(code)])
+      elif code=='13': self.insert_str(colors[int(code)])
+      elif code=='14': self.insert_str(colors[int(code)])
+      elif code=='15': self.insert_str(colors[int(code)])
+      elif code=='16': self.insert_str(colors[int(code)])
+      elif code=='17': self.insert_str(colors[int(code)])
+      elif code=='18': self.insert_str(colors[int(code)])
+      elif code=='19': self.insert_str(colors[int(code)])
+      elif code=='20': self.insert_str(colors[int(code)])
+      elif code=='21': self.insert_str(colors[int(code)])
+      elif code=='22': self.insert_str(colors[int(code)])
+      elif code=='23': self.insert_str(colors[int(code)])
+      elif code=='TI': self.insert_str(datetime.datetime.now().strftime("%H:%M"))
+      elif code=='US': self.insert_str(str(self.ROWS))
+      elif code=='DA': self.insert_str(datetime.date.today().strftime("%c"))
+      elif code=='UX': self.insert_str(socket.gethostname())
+      elif code=='UY': self.insert_str(get_ip())
+      else:
+        self.show_prompt('Wrong MCI code. Aborting...')
+        break
+      
+      index += 2
   
   def insert_text(self,params):
     cmd = params.upper()
@@ -813,8 +1034,6 @@ class Editor():
       self.insert_str(datetime.date.today().strftime("%c"))
     else:
       self.insert_str(datetime.date.today().strftime("%Y/%m/%d"))
-  
-  
     
   def comment(self,params):
     try: # format: [rows] [+/-]
@@ -890,7 +1109,6 @@ class Editor():
       start_row = self.cury
       end_row = self.cury + int(end)
       
-    self.msg=altype
     for row in range(start_row, end_row):
       line = ''.join(self.buff[row]).strip()
       if altype == 'LEFT':
@@ -926,7 +1144,7 @@ class Editor():
       start_row = self.cury
       end_row = self.cury + int(end)
       
-    self.msg=altype
+    
     for row in range(start_row, end_row):
       line = ''.join(self.buff[row])
       if altype == 'LEFT':
