@@ -2,36 +2,75 @@
 import curses
 import sys,os
 import urllib.request
-from pygments.lexers import PythonLexer, CLexer, BBCodeLexer, DelphiLexer,HtmlLexer,QBasicLexer,BashLexer
+from pygments.lexer import RegexLexer, inherit, words, bygroups
+
+from pygments.lexers import PythonLexer, CLexer, BBCodeLexer, DelphiLexer, \
+     HtmlLexer,QBasicLexer,BashLexer
 from pygments.formatters import TerminalFormatter
 from pygments.token import Keyword, Name, Comment, String, Error, \
-    Number, Operator, Generic, Token, Whitespace
+     Number, Operator, Generic, Token, Whitespace, Text, Punctuation
 from pygments import highlight
-from subprocess import check_output
+#from subprocess import check_output
+import subprocess
 import datetime
 from time import sleep
 import pyperclip
 import socket
+import re
+from spellchecker import SpellChecker
+
+#change the language to your liking: English - ‘en’, Spanish - ‘es’, French - ‘fr’,
+# Portuguese - ‘pt’, German - ‘de’, Russian - ‘ru’, Arabic - ‘ar’
+spell = SpellChecker(language='en')
 
 COLOR_SCHEME = {
   Token:              ('gray',                 'gray'),
-  Comment:            ('magenta',     'brightmagenta'),
+  Comment:            ('magenta',     'red'),
   Comment.Preproc:    ('magenta',     'brightmagenta'),
-  Keyword:            ('blue',                   '**'),
+  Keyword:            ('blue',            'brightcyan'),
   Keyword.Type:       ('green',       '*brightgreen*'),
   Operator.Word:      ('**',                     '**'),
-  Name.Builtin:       ('cyan',           'brightblue'),
-  Name.Function:      ('blue',           'brightblue'),
+  Name.Builtin:       ('*',           '*'),
+  Name.Function:      ('blue',           'blue'),
   Name.Class:         ('_green_',        'brightblue'),
   Name.Decorator:     ('magenta',     'brightmagenta'),
   Name.Variable:      ('blue',           'brightblue'),
-  String:             ('yellow',       'brightyellow'),
-  Number:             ('blue',         'brightyellow')
+  String:             ('yellow',       'yellow'),
+  Number:             ('brightcyan',     'green')
+}
+
+COMPILE = {
+  'py':'python3 -m py_compile ',
+  'pas':'fpc -gl '
+}
+
+ansi = {
+  'clear':"\033[2J",
+  'ceol':"\033[K",
+  'cbol':"\033[1K",
+  'cline':"\033[2K",
+  'home':"\033[1;1H",
+  'goto':"\033[y;xH",
+  'hide':'\033[?25l',
+  'show':'\033[?25h',
+  'up':'\033[A',
+  'down':'\033[B',
+  'right':'\033[C',
+  'left':'\033[D',
+  'next':'\033[E',
+  'pos':'\033[6n',
+  'save':'\033[s',
+  'restore':'\033[u',
+  'bold':'\033[1m',
+  'faint':'\033[2m',
+  'italic':'\033[3m',
+  'underline':'\033[4m',
+  'blink':'\033[5m'
 }
 
 colors = {
- 'reverse':'\x1b[7m',
- 'reset':"\033[0m",
+  'reverse':'\x1b[7m',
+  'reset':"\033[0m",
   0:"\033[0;30m",
   1:"\033[0;34m",
   2:"\033[0;32m",
@@ -58,6 +97,8 @@ colors = {
   23:"\033[47m"
 }
 
+COLOR_STATUS = colors[0]+colors[23]
+COLOR_SUGGEST = colors[0]+colors[22]
 
 BLOG_POST = '''===============================================================================
  Title  :
@@ -84,7 +125,7 @@ SCRIPT_BODY = '''#!/bin/bash
 
 PYTHON_PROGRAM = '''#!/usr/bin/python3
 
-# -*- coding: ascii -*-
+# -*- coding: utf-8 -*-
 
 import os, sys
 
@@ -173,6 +214,67 @@ GPL_NOTICE = '''
  */
 '''
 
+class MPLLexer(DelphiLexer):
+    name = 'mpl'
+    aliases = ['mpl']
+    filenames = ['*.mpl']
+    EXTRA_KEYWORDS = set(('clrscr','clreol','gotoxy','wherex','wherey','dispfile','disptemplate','outbs','textcolor',
+'outpipe','outpipeln','outraw','outrawln','bufaddstr','bufflush','readkey','getkey','getyn',
+'getstr','pause','more','onekey','stuffkey','delay','mci2str','sysoplog','acs','hangup',
+'keypressed','upuser','nodenum','strpadr','strpadl','strpadc','strrep','strcomma','stri2s',
+'strs2i','stri2h','strwordget','strwordpos','strwordnum','strstripl','strstripr','strstripb',
+'strstriplow','strstripmci','strmcilen','strinitials','strwrap','strreplace','readenv',
+'fileexist','fileerase','direxist','timermin','timersec','datedos','datejulian','datedos2str',
+'datejulian2str','datestr2dos','datestr2julian','dateg2j','datej2g','datevalid','timedos2str',
+'daysago','justfile','justfilename','justfileext','fassign','freset','frewrite','fclose',
+'fseek','feof','fread','fwrite','freadln','fwriteln','pathsep','menucmd','bitcheck','bittoggle',
+'bitset','getprompt','getpromptinfo','getscreeninfo','getscreenchar','getscreenattr',
+'getthisuser','putthisuser','getuser','putuser','getuserbyname','getuserbyid','getsauce',
+'isuser','justpath','settimeleft','setpromptinfo'))
+
+    def get_tokens_unprocessed(self, text):
+        for index, token, value in DelphiLexer.get_tokens_unprocessed(self, text):
+            if token is Name and value in self.EXTRA_KEYWORDS:
+                yield index, Keyword, value
+            else:
+                yield index, token, value
+                
+class MPYLexer(PythonLexer):
+    name = 'mpy'
+    aliases = ['mpy']
+    filenames = ['*.mpy']
+    EXTRA_KEYWORDS = set(('dated2u','datestr','dateu2d','delay','charxy','flush','gotoxy','mci2str','pause',
+'pwrite','pwriteln','rwrite','rwriteln','showfile','termsize','textattr','textcolor',
+'wherex','wherey','write','writeln','writexy','backspace','getkey','getyn',
+'keypressed','onekey','purgeinput','stuffkey','getprompt','setpinfo','setprompt',
+'access','acsnogroup','getmbase','getmbaseid','getmgroup','getmgroupid','msg_close',
+'msg_delete','msg_found','msg_gethdr','msg_gettxt','msg_next','msg_open','msg_prev',
+'msg_seek','msg_getlr','msg_setlr','msg_stats','fl_close','fl_found','fl_getdesc',
+'fl_getfile','fl_next','fl_open','fl_prev','fl_seek','getfbase','getfbaseid',
+'getfgroup','getfgroupid','getnetaddr','logerror','mci2str','menucmd','param_count',
+'param_str','shutdown','sysoplog','upuser','getcfg','getfbase','getfbaseid',
+'getfgroup','getfgroupid','getmbase','getmbaseid','getmgroup','getmgroupid',
+'getnetaddr','getuserid','msg_gethdr'))
+
+    def get_tokens_unprocessed(self, text):
+        for index, token, value in PythonLexer.get_tokens_unprocessed(self, text):
+            if token is Name and value in self.EXTRA_KEYWORDS:
+                yield index, Keyword, value
+            else:
+                yield index, token, value
+
+def writetext(ln):
+  sys.stdout.write(ln)
+  sys.stdout.flush()
+
+def stripansi(line):
+  ansi_escape = re.compile(r'(?:\x1B[@-_]|[\x80-\x9F])[0-?]*[ -/]*[@-~]')
+  return ansi_escape.sub('', line)
+  
+def ljustansi(line,w):
+  while len(stripansi(line)) < w: line+=' '
+  return line
+
 def get_ip():
   s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
   s.settimeout(0)
@@ -193,16 +295,41 @@ class Editor():
     self.screen.nodelay(1)
     self.msg=""
     self.autoindent = True
+    self.autosuggest = False
+    self.modified = False
     self.tab = 2
     self.seperators = " ,.()+-/*=~%<>[];{}"
     self.ROWS, self.COLS = self.screen.getmaxyx()
-    self.ROWS -= 1
+    self.bottom = self.ROWS-1
+    self.statusy = self.ROWS
+    self.suggesty = self.ROWS-1
     self.insert = True
     curses.raw()
     curses.noecho()
     self.history = []
     self.filetype = 'txt'
-    self.lexers = { 'py': PythonLexer, 'c': CLexer, 'bb':BBCodeLexer, 'pas':DelphiLexer, 'htm':HtmlLexer, 'bas':QBasicLexer, 'sh':BashLexer}
+    self.lexers = { 'py': PythonLexer, 'c': CLexer, 'bb':BBCodeLexer, 'pas':DelphiLexer, \
+                    'htm':HtmlLexer, 'bas':QBasicLexer, 'sh':BashLexer, 'mpl':MPLLexer, \
+                    'mpy':MPYLexer}
+                    
+    self.windows = []
+    self.active = 0
+    for i in range(5):
+      self.windows.append({'filename':'untitled.txt',
+      'curx':0,
+      'cury':0,
+      'indent':True,
+      'width':80,
+      'suggest':False,
+      'tab':2,
+      'insert':True,
+      'buff':[[]],
+      'total':1,
+      'modified':False,
+      'filetype':'txt',
+      'offx':0,
+      'offy':0
+      })
 
   def reset(self):
     self.curx = 0
@@ -228,6 +355,7 @@ class Editor():
     return False
   
   def insert_char(self, c):
+    global spell
     if self.insert:
       if len(self.buff[self.cury])+1<=self.width:
         self.buff[self.cury].insert(self.curx, c)
@@ -277,13 +405,53 @@ class Editor():
     else:
       self.show_prompt('Value is greater than total lines.')
     
+  def compile(self):
+    if self.active == 4: return
+    ext = self.filename.split('.')[-1].lower()
+    if not (ext in COMPILE): 
+      self.show_prompt('no compile command for this filetype...')
+      return
+    if not os.path.isfile(self.filename):
+      self.show_prompt("file doesn't exist. save it first.")
+      return
+
+    proc = subprocess.Popen(
+
+    COMPILE[ext] + self.filename,
+    stdout=subprocess.PIPE,
+    stderr=subprocess.PIPE,
+    shell=True,
+    text=True
+    )
+    while proc.poll() is None:
+      sleep(1)
+
+    output, error = proc.communicate()
+    ln = colors['reset']+ansi['clear']
+    ln += '--- OUTPUT '+'-'*69+'\r'
+    for l in output.splitlines():
+      ln += l+'\n'
+    ln += '--- ERRORS '+'-'*69+'\r'
+    for l in error.splitlines():
+      ln += l+'\n'
+    ln += '--- RETURN VALUE \n'
+    ln += str(proc.poll())
+    writetext(ln)
+    self.show_prompt('press a key to continue...')
+    self.pause()
+    
+  
   def bashcmd(self):
+    if self.active == 4: return
     cmd = self.command_prompt('command:')
     cmd = cmd.split()
-    if len(cmd) == 1:
-      k = check_output(cmd[0])
-    else:
-      k = check_output([cmd[0], " ".join(cmd[1:])])
+    try:
+      if len(cmd) == 1:
+        k = subprocess.check_output(cmd[0])
+      else:
+        k = subprocess.check_output([cmd[0], " ".join(cmd[1:])])
+    except:
+      return
     
     for line in k.decode().splitlines():
       for c in line:
@@ -314,6 +482,7 @@ class Editor():
     self.modified += 1
   
   def delete_line(self):
+    if self.active == 4: return
     if len(self.buff) == 1: return
     try:
       del self.buff[self.cury]
@@ -324,6 +493,15 @@ class Editor():
     if self.cury >= self.total_lines:
       self.cury = self.total_lines-1
 
+  def move_home(self):
+    spaces = 0
+    if len(self.buff[self.cury])>0:
+      while self.buff[self.cury][spaces] == ' ': spaces += 1
+      if self.curx != spaces:
+        self.curx = spaces
+      else:    
+        self.curx = 0
+    
   def move_cursor(self, key):
     row = self.buff[self.cury] if self.cury < self.total_lines else None
     if key == curses.KEY_LEFT:
@@ -390,10 +568,10 @@ class Editor():
 
   def scroll_page(self, key):
     count = 0
-    while count != self.ROWS:
+    while count != self.bottom:
       if key == curses.KEY_NPAGE:
         self.move_cursor(curses.KEY_DOWN)
-        if self.offy < self.total_lines - self.ROWS: self.offy += 1
+        if self.offy < self.total_lines - self.bottom: self.offy += 1
       elif key == curses.KEY_PPAGE:
         self.move_cursor(curses.KEY_UP)
         if self.offy: self.offy -= 1
@@ -401,18 +579,26 @@ class Editor():
 
   def scroll_buffer(self):
     if self.cury < self.offy: self.offy = self.cury
-    if self.cury >= self.offy + self.ROWS: self.offy = self.cury - self.ROWS+1
+    if self.cury >= self.offy + self.bottom: self.offy = self.cury - self.bottom+1
     if self.curx < self.offx: self.offx = self.curx
     if self.curx >= self.offx + self.COLS: self.offx = self.curx - self.COLS+1
 
   def print_status_bar(self):
-    status = '\x1b[7m'
+    status = '\x1b[' + str(self.statusy) + ';1H'+COLOR_STATUS
     status += "^H:Help |"
     status += '^' if self.modified else ' '
     status += self.filename[:20].ljust(20) + ' | ' + str(self.total_lines) + ' lines'+'|'+self.msg 
     
+    i = 0
+    ps = ' | '
+    while i < 4:
+      if self.active == i: ps += '#'
+      elif len(self.windows[i]['buff'][0])>0: ps += str(i+1)
+      else: ps += '.'
+      i+=1
+      
     
-    ps = '| '+self.filetype.upper()+' '
+    ps += ' | '+self.filetype.upper()+' '
     
     if self.insert:
       ps+="| INS "
@@ -426,17 +612,40 @@ class Editor():
     
     ps += str(self.width).zfill(2)+' '
     ps += str(self.cury+1).rjust(3,' ') + ':' + str(self.curx+1).rjust(2,'0')
-    while len(status) < self.COLS - len(ps) + 3: status += ' '
+    while len(stripansi(status)) < self.COLS - len(ps) -1: status += ' '
     status += ps + ' '
     status += '\x1b[m'
     status += '\x1b[' + str(self.cury - self.offy+1) + ';' + str(self.curx - self.offx+1) + 'H'
     status += '\x1b[?25h'+colors['reset']
     return status
+    
+  def print_suggest(self):
+    #check spelling of last word
+    line = '\x1b['+str(self.suggesty)+';1H'+COLOR_SUGGEST
+    ln = ''.join(self.buff[self.cury])
+    if ln[-1:] != ' ': return ljustansi(line,self.COLS)
+    
+    ln = ln.strip()
+    if not ln: return ljustansi(line,self.COLS)
+    
+    wrd = ln[ln[:-1].rfind(' ')+1:] #find the last word after having a space at the end
+    # check if word is very big or has symbols inside, if so drop the function as it will take too much time
+    if len(wrd)>20: return ljustansi(line,self.COLS)
+    for s in self.seperators:
+      if s in wrd:
+        return ljustansi(line,self.COLS)
+
+    suggs = spell.candidates(wrd)
+    if not suggs: return ljustansi(line,self.COLS)
+    for w in suggs:
+      line += w+' '
+    #str(spell.candidates(wrd))
+    return ljustansi(line,self.COLS)
 
   def print_buffer(self):
     print_buffer = '\x1b[?25l'
     print_buffer += '\x1b[H\x1b[2J'
-    for row in range(self.ROWS):
+    for row in range(self.bottom):
       buffrow = row + self.offy;
       if buffrow < self.total_lines:
         rowlen = len(self.buff[buffrow]) - self.offx
@@ -444,10 +653,10 @@ class Editor():
         if rowlen > self.COLS: rowlen = self.COLS;
         try:
           print_buffer += highlight(
-          ''.join([c for c in self.buff[buffrow][self.offx: self.offx + rowlen]]),
+          ''.join([c if c!=chr(27) else '^' for c in self.buff[buffrow][self.offx: self.offx + rowlen]]),
           self.lexers[self.filetype](),
           TerminalFormatter(bg='dark', colorscheme=COLOR_SCHEME))[:-1]
-        except: print_buffer += ''.join([c for c in self.buff[buffrow][self.offx: self.offx + rowlen]])
+        except: print_buffer += ''.join([c if c!=chr(27) else '^' for c in self.buff[buffrow][self.offx: self.offx + rowlen]])
       print_buffer += '\x1b[K'
       print_buffer += '\r\n'
     return print_buffer
@@ -455,83 +664,56 @@ class Editor():
   def pause(self):
     c = -1
     while (c == -1): c = self.screen.getch()
-  
-  def inhelp(self):
-    scr = 1
     
+  def getkey(self,prompt,valid):
     while True:
-      if scr == 1:
-        print_buffer = '\x1b[?25l'
-        print_buffer += '\x1b[H\x1b[2J'
-        print_buffer += ' Help and Shortcuts...\r\n'
-        print_buffer += ' ---------------------\r\n'
-        print_buffer += '\r\n'
-
-        print_buffer += 'CTRL-N    : New File                CTRL-F : Find String\r\n'
-        print_buffer += 'CTRL-S    : Save File               CTRL-G : Search Again\r\n'
-        print_buffer += '\r\n'
-        print_buffer += 'CTRL-D    : Delete Line             CTRL-W : Delete to prev. word\r\n'
-        print_buffer += '                                    CTRL-C : Enter Editor/App. Command\r\n'
-        print_buffer += 'CTRL-A    : Auto Indent             CTRL-B : Insert Command Output\r\n'
-        print_buffer += '\r\n'
-        print_buffer += 'CTRL-END  : End of Document         CTRL-RIGHT Cursor : Next Word\r\n'
-        print_buffer += 'CTRL-HOME : Start of Document       CTRL-LEFT Cursor  : Prev. Word\r\n'
-        print_buffer += '                                    CTRL-SHIFT-TAB    : Backward TAB\r\n'
-      elif scr == 2:
-        print_buffer = '\x1b[?25l'
-        print_buffer += '\x1b[H\x1b[2J'
-        print_buffer += ' Commands...\r\n'
-        print_buffer += ' -----------\r\n'
-        print_buffer += '\r\n'
-        print_buffer += 'date [format]           : insert current date - formats: ymd, mdy, dmy\r\n'
-        print_buffer += 'time                    : insert current time\r\n'
-        print_buffer += 'width <cols>            : set width for document\r\n'
-        print_buffer += 'filetype <type>         : set filetype, for highlighting\r\n'
-        print_buffer += '                          types: pascal, python, basic, c, html, bbcode\r\n'
-        print_buffer += 'align <side> [char]     : align current line text, with giver char\r\n'
-        print_buffer += '                          side: left, right, center\r\n'
-        print_buffer += 'ascii <num>             : insert ascii char\r\n'
-        print_buffer += 'comment <n>             : comment the n next lines\r\n'
-        print_buffer += 'uncomment <n>           : uncomment the n next lines\r\n'
-        print_buffer += 'repeat <width> <char>   : repeat the given character to given width\r\n'
-        print_buffer += 'line <width> <char>     : same us repeat\r\n'
-        print_buffer += 'indent <rows> <cols> [+/-] : un/indent the following lines with <cols> spaces,\r\n'
-        print_buffer += '                             from the current x position.\r\n'
-      
-      for row in range(self.ROWS - len(print_buffer.split('\n'))):
-        print_buffer += '\x1b[K'
-        print_buffer += '\r\n'
-      print_buffer += '\x1b['+str(self.ROWS)+';13HPress 1 for shortcuts, 2 for commands, any other to exit.'
-      
-      sys.stdout.write(print_buffer)
-      sys.stdout.flush()
-      
       c = -1
+      self.clear_prompt(prompt)
+      self.screen.refresh()
       while (c == -1): c = self.screen.getch()
-      
-      if c == ord('1'): scr = 1
-      elif c==ord('2'): scr = 2
-      else:
+      if chr(c).upper() in valid.upper():
         break
-    self.update_screen()
-    self.screen.refresh()
-    
+    return c
+
+  def inhelp(self):
+    self.changewindow(4)
+    self.reset()
+    self.buff.append([])
+    with open(sys.argv[0]) as f:
+      content = f.read().split('\n')
+      for line in content:
+        if line.startswith('#`'):
+          self.insert_strln(line[2:])      
+  
+  def set_suggest(self,value):
+    self.autosuggest = value
+    if self.autosuggest:
+      self.bottom = self.ROWS - 2
+      self.suggesty = self.ROWS - 1
+      self.statusy  = self.ROWS 
+    else:
+      self.bottom = self.ROWS - 1
+      self.suggesty = self.ROWS - 1
+      self.statusy  = self.ROWS 
 
   def update_screen(self):
     self.scroll_buffer()
     print_buffer = self.print_buffer()
+    if self.autosuggest:
+      suggest = self.print_suggest()
+    else: suggest = ''
     status_bar = self.print_status_bar()
-    sys.stdout.write(print_buffer + status_bar)
+    sys.stdout.write(print_buffer + suggest + status_bar)
     sys.stdout.flush()
 
   def resize_window(self):
     self.ROWS, self.COLS = self.screen.getmaxyx()
-    self.ROWS -= 1
+    self.set_suggest(self.autosuggest)
     self.screen.refresh()
     self.update_screen()
     
-    
   def docommand(self):
+    if self.active == 4: return
     cmd = self.command_prompt('command: ',recomend=True)
     if cmd:
       self.history.append(cmd)
@@ -541,10 +723,15 @@ class Editor():
     def ctrl(c): return ((c) & 0x1f)
     c = -1
     while (c == -1): c = self.screen.getch()
+    
     if c == ctrl(ord('q')): self.exit()
-    elif c == ctrl(ord('x')) or c == 27: self.docommand()      
+    elif c == ctrl(ord('x')): self.docommand()
+    elif c == 27: 
+      if self.active == 4: self.changewindow(0)
+      else: self.docommand()
     elif c == 9: [self.insert_char(' ') for i in range(self.tab)] #TAB KEY
     elif c == curses.KEY_BTAB: [self.delete_char() for i in range(self.tab) if self.curx]
+    elif c == ctrl(ord('o')): self.load_file()
     elif c == ctrl(ord('n')): self.new_file()
     elif c == ctrl(ord('s')): self.save_file('')
     elif c == ctrl(ord('f')): self.search()
@@ -560,10 +747,15 @@ class Editor():
     elif c == ctrl(ord('c')): self.copy_lines('1')
     elif c == ctrl(ord('a')): self.autoindent=not self.autoindent
     elif c == ctrl(ord('l')): self.jumpto()
+    elif c == curses.KEY_F1: self.changewindow(0)
+    elif c == curses.KEY_F2: self.changewindow(1)
+    elif c == curses.KEY_F3: self.changewindow(2)
+    elif c == curses.KEY_F4: self.changewindow(3)
+    elif c == curses.KEY_F7: self.compile()
     elif c == curses.KEY_IC: self.insert=not self.insert
     elif c == curses.KEY_DC: self.del_char()
     elif c == curses.KEY_RESIZE: self.resize_window()
-    elif c == curses.KEY_HOME: self.curx = 0
+    elif c == curses.KEY_HOME: self.move_home()
     elif c == curses.KEY_END: self.curx = len(self.buff[self.cury])
     elif c == curses.KEY_LEFT: self.move_cursor(c)
     elif c == curses.KEY_RIGHT: self.move_cursor(c)
@@ -579,15 +771,55 @@ class Editor():
     elif c == ord('\n'): self.insert_line()
     elif ctrl(c) != c: self.insert_char(chr(c))
 
+  def changewindow(self,win):
+    if win == self.active: return
+    #save previous state
+    self.windows[self.active]['buff'].clear()
+    self.windows[self.active]['buff'] = self.buff.copy()
+    self.windows[self.active]['filename'] = self.filename
+    self.windows[self.active]['filetype'] = self.filetype
+    self.windows[self.active]['curx'] = self.curx
+    self.windows[self.active]['cury'] = self.cury
+    self.windows[self.active]['offx'] = self.offx
+    self.windows[self.active]['offy'] = self.offy
+    self.windows[self.active]['indent'] = self.autoindent
+    self.windows[self.active]['suggest'] = self.autosuggest
+    self.windows[self.active]['tab'] = self.tab
+    self.windows[self.active]['insert'] = self.insert
+    self.windows[self.active]['total'] = self.total_lines
+    self.windows[self.active]['modified'] = self.modified
+    self.windows[self.active]['width'] = self.width
+    #activate new window
+    self.active = win
+    self.buff.clear()
+    self.buff = self.windows[self.active]['buff'].copy()
+    self.filename = self.windows[self.active]['filename']
+    self.filetype = self.windows[self.active]['filetype']
+    self.curx = self.windows[self.active]['curx']
+    self.cury = self.windows[self.active]['cury']
+    self.offx = self.windows[self.active]['offx']
+    self.offy = self.windows[self.active]['offy']
+    self.autoindent = self.windows[self.active]['indent']
+    self.autosuggest = self.windows[self.active]['suggest']
+    self.tab = self.windows[self.active]['tab']
+    self.insert = self.windows[self.active]['insert']
+    self.total_lines = self.windows[self.active]['total']
+    self.modified = self.windows[self.active]['modified']
+    self.width = self.windows[self.active]['width']
+    
+    self.scroll_buffer()
+    self.update_screen()
+    
+  
   def clear_prompt(self, line):
     command_line = line
     ps = str(len(self.buff))+' lines '    
     ps += str(self.cury+1).rjust(3,' ') + ':' + str(self.curx+1).rjust(2,'0')
     while (len(command_line) + len(ps)) < self.COLS-1: command_line += ' '
-    command_line = '\x1b[' + str(self.ROWS+1) + ';' + '0' + 'H' + command_line
-    command_line = '\x1b[7m' + command_line
+    command_line = '\x1b[' + str(self.statusy) + ';' + '0' + 'H' + command_line
+    command_line = COLOR_STATUS + command_line
     command_line += ps 
-    command_line += '\x1b[' + str(self.ROWS+1) + ';' + str(len(line)+1) + 'H'
+    command_line += '\x1b[' + str(self.statusy) + ';' + str(len(line)+1) + 'H'
     sys.stdout.write(command_line)
     sys.stdout.flush()
     
@@ -619,9 +851,9 @@ class Editor():
     
     if not rec: return
     
-    line = '\x1b['+str(self.ROWS)+';1H'
+    line = '\x1b['+str(self.suggesty)+';1H'
     line += colors[0]+colors[22]+words
-    line += '\x1b['+str(self.ROWS+1)+';'+str(cursorpos+1)+'H'+colors['reset']+colors['reverse']
+    line += '\x1b['+str(self.statusy)+';'+str(cursorpos+1)+'H'+COLOR_STATUS
     sys.stdout.write(line)
     sys.stdout.flush()
     
@@ -633,7 +865,8 @@ class Editor():
     index = len(self.history)
     
     def backspace():
-      nonlocal pos,word
+      nonlocal pos
+      nonlocal word
       pos -= 1
       if pos < 0: pos = 0; return
       sys.stdout.write('\b')
@@ -686,73 +919,83 @@ class Editor():
       try:
         if recomend:
           recomended.clear()
-          parts = str(word).split()
-          if len(parts)==1:
+          keyword = str(word).upper()
+          if keyword.find(' ') == -1:
             recomended = ['time','save','extract','exit','quit','width','filetype','fl', \
             'align','al','strip','st','ascii','ansi','clear','reset','commend','cm',\
             'uncomment','date','dt','line','repeat','rep','indent','ind','delete','del',\
-            'copy','cp','paste','pt','get','insert','mci','box','menul','menuc']
+            'copy','cp','paste','pt','get','insert','mci','box','menul','menuc','saveas',
+            'spell','open','load','bash']
             self.dorecommend(word,pos+len(prompt),RECOMEND=recomended)
           else:
-            if parts[0].upper() in ['ALIGN','AL']:
+            if keyword[:keyword.find(' ')] in ['ALIGN','AL']:
               recomended=['align <left|right|center> [lines] : align text for line(s)']
               self.dorecommend(word,pos+len(prompt),True,RECOMEND=recomended)
-            elif parts[0].upper() in ['STRIP','ST']:
+            elif keyword[:keyword.find(' ')] in ['STRIP','ST']:
               recomended=['strip <left|right|center> [lines|all] : strip text for line(s)']
               self.dorecommend(word,pos+len(prompt),True,RECOMEND=recomended)
-            elif parts[0].upper() in ['INSERT','INS']:
+            elif keyword[:keyword.find(' ')] in ['INSERT','INS']:
               recomended=['insert <gpl|bsd|blog|script|html|python|pascal> : insert text template']
               self.dorecommend(word,pos+len(prompt),True,RECOMEND=recomended)
-            elif parts[0].upper() in ['FILETYPE','FL']:
+            elif keyword[:keyword.find(' ')] in ['FILETYPE','FL']:
               recomended=['pascal','python','c','bas','delphi','text','bbcode','html','none','bash']
               self.dorecommend(word,pos+len(prompt),True,RECOMEND=recomended)
-            elif parts[0].upper() in ['ASCII']:
+            elif keyword[:keyword.find(' ')] in ['ASCII']:
               recomended=['type ascii number of the character you want']
               self.dorecommend(word,pos+len(prompt),True,RECOMEND=recomended)
-            elif parts[0].upper() in ['WIDTH']:
+            elif keyword[:keyword.find(' ')] in ['WIDTH']:
               recomended=['width <num> : set document width to <num> cols']
               self.dorecommend(word,pos+len(prompt),True,RECOMEND=recomended)
-            elif parts[0].upper() in ['INDENT','IND']:
+            elif keyword[:keyword.find(' ')] in ['INDENT','IND']:
               recomended=['indent <rows> <cols> [+/-] : indent <cols> for <rows> from current position']
               self.dorecommend(word,pos+len(prompt),True,RECOMEND=recomended)
-            elif parts[0].upper() in ['LINE','REPEAT','REP']:
+            elif keyword[:keyword.find(' ')] in ['LINE','REPEAT','REP']:
               recomended=['repeat <cols> <char> : repeat <char> for <cols> times']
               self.dorecommend(word,pos+len(prompt),True,RECOMEND=recomended)
-            elif parts[0].upper() in ['COMMENT','CM']:
+            elif keyword[:keyword.find(' ')] in ['OPEN','LOAD']:
+              recomended=['open : load a file']
+              self.dorecommend(word,pos+len(prompt),True,RECOMEND=recomended)
+            elif keyword[:keyword.find(' ')] in ['COMMENT','CM']:
               recomended=['comment <num> : comment <num> lines']
               self.dorecommend(word,pos+len(prompt),True,RECOMEND=recomended)
-            elif parts[0].upper() in ['UNCOMMENT']:
+            elif keyword[:keyword.find(' ')] in ['UNCOMMENT']:
               recomended=['uncomment <num> : comment <num> lines']
               self.dorecommend(word,pos+len(prompt),True,RECOMEND=recomended)
-            elif parts[0].upper() in ['EXTRACT']:
+            elif keyword[:keyword.find(' ')] in ['EXTRACT']:
               recomended=['extract <num|all> : saves <num> lines to a file']
               self.dorecommend(word,pos+len(prompt),True,RECOMEND=recomended)
-            elif parts[0].upper() in ['BASH']:
+            elif keyword[:keyword.find(' ')] in ['BASH']:
               recomended=['bash : inserts output of a BASH command']
               self.dorecommend(word,pos+len(prompt),True,RECOMEND=recomended)
-            elif parts[0].upper() in ['DELETE','DEL']:
+            elif keyword[:keyword.find(' ')] in ['DELETE','DEL']:
               recomended=['delete <num|all> : delete <num> lines']
               self.dorecommend(word,pos+len(prompt),True,RECOMEND=recomended)
-            elif parts[0].upper() in ['COPY','CP']:
+            elif keyword[:keyword.find(' ')] in ['COPY','CP']:
               recomended=['copy <num|all> : copy <num> lines to clipboard']
               self.dorecommend(word,pos+len(prompt),True,RECOMEND=recomended)
-            elif parts[0].upper() in ['PASTE','PT']:
+            elif keyword[:keyword.find(' ')] in ['PASTE','PT']:
               recomended=['paste : paste from clipboard in current position']
               self.dorecommend(word,pos+len(prompt),True,RECOMEND=recomended)
-            elif parts[0].upper() in ['GET']:
+            elif keyword[:keyword.find(' ')] in ['GET']:
               recomended=['get <url|file> : inserts a local file or from the internet']
               self.dorecommend(word,pos+len(prompt),True,RECOMEND=recomended)
-            elif parts[0].upper() in ['ANSI']:
-              recomended=['black','blue','red','grey','...','lightblue','lightred','...','white','reset']
+            elif keyword[:keyword.find(' ')] in ['SPELL']:
+              recomended=['spell <on|off> : turn on/off spell checking']
               self.dorecommend(word,pos+len(prompt),True,RECOMEND=recomended)
-            elif parts[0].upper() in ['MCI']:
+            elif keyword[:keyword.find(' ')] in ['ANSI']:
+              recomended=['black','blue','red','grey','...','lightblue','lightred','...','white','reset','cls','reverse']
+              self.dorecommend(word,pos+len(prompt),True,RECOMEND=recomended)
+            elif keyword[:keyword.find(' ')] in ['MCI']:
               recomended=['mci <code> : inserts a mystic bbs MCI code, if supported']
               self.dorecommend(word,pos+len(prompt),True,RECOMEND=recomended)
-            elif parts[0].upper() in ['BOX']:
+            elif keyword[:keyword.find(' ')] in ['BOX']:
               recomended=['box <type> : inserts an ASCII box']
               self.dorecommend(word,pos+len(prompt),True,RECOMEND=recomended)
-            elif parts[0].upper() in ['MENUC','MENUL']:
+            elif keyword[:keyword.find(' ')] in ['MENUC','MENUL']:
               recomended=['menu [header] [option1] [option2] .. : inserts a menu box']
+              self.dorecommend(word,pos+len(prompt),True,RECOMEND=recomended)
+            elif keyword[:keyword.find(' ')] in ['SAVEAS']:
+              recomended=['saveas <type> : saves/export the doc in a different format']
               self.dorecommend(word,pos+len(prompt),True,RECOMEND=recomended)
       except: pass
     self.update_screen()
@@ -762,10 +1005,12 @@ class Editor():
   def insert_str(self,s):
     for i,c in enumerate(s):
       self.buff[self.cury].insert(self.curx+i, c)
+    self.curx += len(s)
+      
     
   def command(self,command):
     global BSD_NOTICE, GPL_NOTICE, HTML_BODY
-    
+    if self.active == 4: return
     cmd = command
     if not cmd: return
     cmd = cmd.split()
@@ -789,18 +1034,24 @@ class Editor():
       self.align(params)
     elif cmd == 'STRIP' or cmd == 'ST':
       self.strip(params)
+    elif cmd == 'SAVEAS':
+      self.saveas(params)
     elif cmd == 'ASCII': # ASCII [char-num]
       self.insert_char(chr(int(params)))
     elif cmd == 'ANSI': # ANSI Color
-      self.ansicolor(params)
+      self.ansistring(params)
     elif cmd == 'MCI': 
       self.mci(params)
     elif cmd == 'MENUC': 
       self.box(params,1)
     elif cmd == 'MENUL': 
       self.box(params,2)
+    elif cmd == 'SPELL':   
+      self.dosuggest(params)
     elif cmd == 'BOX': 
       self.box2(params)
+    elif cmd == 'OPEN' or cmd == 'LOAD': 
+      self.load_file(params)
     elif cmd == 'CLEAR' or cmd == 'RESET': # Reset the editor
       self.new_file()
     elif cmd == 'COMMENT' or cmd == 'CM':
@@ -847,6 +1098,10 @@ class Editor():
            ▀▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄█'''
    
     self.insert_paragraph(line)
+    
+  def saveas(self,params):
+    params = params.upper()
+    if params == 'ANSI': self.saveas_ansi()
 
   def box(self,params,align=1):
     parts = params.split()
@@ -882,6 +1137,14 @@ class Editor():
     for line in s.splitlines():
       self.insert_strln(line)
       self.modified+=1
+  
+  def dosuggest(self,params):
+    val = params.upper().strip()
+    if val == 'ON':
+      self.set_suggest(True)
+    else:
+      self.set_suggest(False)
+    self.update_screen()
       
   def mci(self,params):
     codes = params.upper()
@@ -941,7 +1204,7 @@ class Editor():
     elif cmd == 'BASH' or cmd == 'SCRIPT':
       self.insert_paragraph(SCRIPT_BODY)
       
-  def ansicolor(self,params):
+  def ansistring(self,params):
     params = params.upper()
     if params == 'BLACK': self.insert_str('\x1b[0;30m')
     elif params == 'BLUE': self.insert_str('\x1b[0;34m')
@@ -960,6 +1223,11 @@ class Editor():
     elif params == 'YELLOW': self.insert_str('\x1b[1;33m')
     elif params == 'WHITE': self.insert_str('\x1b[1;37m')
     elif params == 'RESET': self.insert_str(colors['reset'])
+    elif params == 'CLEAR': self.insert_str(ansi['clear'])
+    elif params == 'CLS': self.insert_str(ansi['clear'])
+    elif params == 'GOTO': self.insert_str(ansi['goto'])
+    elif params == 'RESET': self.insert_str(colors['reset'])
+    elif params == 'REVERSE': self.insert_str(colors['reverse'])
     else:
       try:
         self.insert_str(colors[int(params)])
@@ -1001,11 +1269,11 @@ class Editor():
     if typeof == 'dpr': typeof = 'pas'
     elif typeof == 'delphi': typeof = 'pas'
     elif typeof == 'bbcode': typeof = 'bb'
-    elif typeof == 'mpl': typeof = 'pas'
+    elif typeof == 'mpl': typeof = 'mpl'
     elif typeof == 'python': typeof = 'py'
     elif typeof == 'pyw': typeof = 'py'
     elif typeof == 'basic': typeof = 'bas'
-    elif typeof == 'mpy': typeof = 'py'
+    elif typeof == 'mpy': typeof = 'mpy'
     elif typeof == 'pascal': typeof = 'pas'
     elif typeof == 'htm': typeof = 'htm'
     elif typeof == 'html': typeof = 'htm'
@@ -1066,6 +1334,7 @@ class Editor():
       end_row = self.cury + int(end)
       
     for row in range(start_row, end_row):
+      if row>len(self.buff)-1: break
       self.delete_line()      
       
   def copy_lines(self,param):
@@ -1083,11 +1352,13 @@ class Editor():
     
     content = ''
     for row in range(start_row, end_row):
+      if row>len(self.buff)-1: break
       content += ''.join(self.buff[row])+'\r\n'
     
     pyperclip.copy(content)
     
   def paste_lines(self,params):
+    if self.active == 4: return
     self.insert_paragraph(pyperclip.paste())
     
   def align(self,param):
@@ -1110,6 +1381,7 @@ class Editor():
       end_row = self.cury + int(end)
       
     for row in range(start_row, end_row):
+      if row>len(self.buff)-1: break
       line = ''.join(self.buff[row]).strip()
       if altype == 'LEFT':
         self.buff[row]=list(line.ljust(self.width,char))
@@ -1120,6 +1392,7 @@ class Editor():
       self.modified += 1
     
   def del_eol(self):
+    if self.active == 4: return
     line = ''.join(self.buff[self.cury])
     line = line[:self.curx]
     self.buff[self.cury]=list(line)
@@ -1154,7 +1427,9 @@ class Editor():
       elif altype == 'CENTER':
         self.buff[row]=list(line.strip(char))
       self.modified += 1
-    
+    self.cury = end_row-1
+    self.curx = len(self.buff[end_row-1])
+    self.scroll_buffer()
   
   def indent(self,indent):
     #indent = self.command_prompt('indent:')
@@ -1194,6 +1469,19 @@ class Editor():
       except: pass
       self.search_index += 1
 
+  def load_file(self):
+    if self.active == 4: return
+    if self.modified:
+      ans = self.getkey('current document is modified. save? y/n','YN')
+      if chr(ans) in 'Yy':
+        self.save_file('')
+    
+    fn = self.command_prompt('load file: ')
+    if os.path.isfile(fn):
+      self.open_file(fn)
+    else:
+      self.show_prompt('file not found!')
+    
   def open_file(self, filename):
     self.reset()
     try:
@@ -1210,6 +1498,25 @@ class Editor():
     self.total_lines = len(self.buff)
     self.update_screen()
   
+  def saveas_ansi(self):
+    fn = self.command_prompt('filename:',self.filename)
+    if fn:
+      self.filename = fn
+    else:
+      self.show_prompt('Aborting...')
+      return
+    prep = self.getkey('video preparation? [C]lear Screen, [H]ome Cursor, [N]one: ','CHN')
+    with open(self.filename, 'w') as f:
+      content = ''
+      for row in self.buff:
+        content += ''.join([c for c in row]) + '\n'
+        
+      if chr(prep) in 'Cc': content = ansi['clear']+content
+      elif chr(prep) in 'Hh': content = ansi['home']+content
+      
+      f.write(content)
+    self.modified = 0
+  
   def quicksave_file(self):
     with open(self.filename, 'w') as f:
       content = ''
@@ -1218,7 +1525,15 @@ class Editor():
       f.write(content)
     self.modified = 0
     
+  def save_buff(self,buf,filename):
+    with open(filename, 'w') as f:
+      content = ''
+      for row in buf:
+        content += ''.join([c for c in row]) + '\n'
+      f.write(content)
+   
   def save_file(self,params):
+    if self.active == 4: return
     fn = self.command_prompt('filename:',self.filename)
     if fn:
       self.filename = fn 
@@ -1246,15 +1561,26 @@ class Editor():
       
 
   def new_file(self):
+    if self.active == 4: return
     self.reset()
     self.buff.append([])
     self.total_lines = 1
 
   def exit(self):
-    if self.modified:
-      cmd = self.command_prompt('save before exit? y/n:')
-      if cmd.upper() == 'Y':
-        self.quicksave_file()
+    for i in range(4):
+      if i == self.active:
+        if self.modified:
+          cmd = self.getkey('save current text before exit? y/n: ','YN')
+          if chr(cmd) in 'Yy':
+            self.quicksave_file()
+      else:
+        if self.windows[i]['modified']:
+          cmd = self.getkey('save text from window['+str(i)+'] before exit? y/n: ','YN')
+          if chr(cmd) in 'Yy':
+            fn = self.command_prompt('window['+str(i)+'] filename:',self.windows[i]['filename'])
+            if fn:
+              self.save_buff(self.windows[i]['buff'],fn)
+            
     curses.endwin()
     sys.exit(0)
 
@@ -1274,3 +1600,34 @@ if __name__ == '__main__':
   os.environ['ESCDELAY'] = "25"
   curses.wrapper(main)
 
+#` Help and Shortcuts...
+#` ---------------------
+#`
+#`
+#`CTRL-N    : New File                CTRL-F : Find String
+#`CTRL-S    : Save File               CTRL-G : Search Again
+#`
+#`CTRL-D    : Delete Line             CTRL-W : Delete to prev. word
+#`                                    CTRL-C : Enter Editor/App. Command
+#`CTRL-A    : Auto Indent             CTRL-B : Insert Command Output
+#`
+#`CTRL-END  : End of Document         CTRL-RIGHT Cursor : Next Word
+#`CTRL-HOME : Start of Document       CTRL-LEFT Cursor  : Prev. Word
+#`                                    CTRL-SHIFT-TAB    : Backward TAB
+#`
+#` Commands...
+#` -----------
+#`
+#`date [format]           : insert current date - formats: ymd, mdy, dmy
+#`time                    : insert current time
+#`width <cols>            : set width for document
+#`filetype <type>         : set filetype, for highlighting
+#`                          types: pascal, python, basic, c, html, bbcode
+#`align <side> [char]     : align current line text, with giver char
+#`                          side: left, right, center
+#`ascii <num>             : insert ascii char
+#`comment <n>             : comment the n next lines
+#`uncomment <n>           : uncomment the n next lines
+#`repeat <width> <char>   : repeat the given character to given width
+#`line <width> <char>     : same us repeat
+#`indent <rows> <cols> [+/-] : un/indent the following lines with <cols> spaces,
