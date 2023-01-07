@@ -1,5 +1,5 @@
 # clied
-  
+'''  
   --------------------------------------------------------------------------
   CliEdit v1.0 - Made by XQTR of Another Droid BBS // andr01d.zapto.org:9999
   --------------------------------------------------------------------------
@@ -388,3 +388,4 @@
   - Create ASCII menus with a simple command
   - Can handle and navigate Bookmarks, for easy navigation in the text
 
+'''
