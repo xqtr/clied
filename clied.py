@@ -14,6 +14,7 @@ from pygments import highlight
 import subprocess
 import datetime
 from time import sleep
+import string
 import pyperclip
 import socket
 import re
@@ -22,6 +23,9 @@ from spellchecker import SpellChecker
 #change the language to your liking: English - ‘en’, Spanish - ‘es’, French - ‘fr’,
 # Portuguese - ‘pt’, German - ‘de’, Russian - ‘ru’, Arabic - ‘ar’
 spell = SpellChecker(language='en')
+
+PATHSEP = {"win32":"\r\n", 'linux':"\n" } 
+PLATFORM = sys.platform
 
 COLOR_SCHEME = {
   Token:              ('gray',                 'gray'),
@@ -194,8 +198,7 @@ BSD_NOTICE = '''/*
  * 
  */'''
  
-GPL_NOTICE = '''
- /*
+GPL_NOTICE = '''/*
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
@@ -263,6 +266,60 @@ class MPYLexer(PythonLexer):
             else:
                 yield index, token, value
 
+def isdosfile(fn): #
+  if "\r\n" in open(fn,"rb").read().decode():
+    return 'win32'
+  else:
+    return 'linux'
+
+def crlf(default=None):
+  global PATHSEP, PLATFORM
+  if default:
+    s = default.upper()
+    if s == 'WIN' or s == 'WINDOWS' or s == 'WIN32':
+      PLATFORM = 'win32'
+    elif s == 'DOS':
+      PLATFORM = 'win32'
+    elif s == 'LINUX' or s == 'LIN' or s == 'UNIX':
+      PLATFORM = 'linux'
+    elif s == '\n':
+      PLATFORM = 'linux'
+    elif s == '\r\n':
+      PLATFORM = 'win32'
+  return PATHSEP[PLATFORM]
+  
+def justify(text, width):
+    if not text: return ''
+    if width == 0: return ''
+    if not isinstance(text, str): return ''
+    if len(text.split()) == 1: return text.strip() + '\n'
+    t, l, ret = text.split(), [], ''
+    for i, w in enumerate(t):
+        l.append(w + ' ')
+        if i + 1 <= len(t) - 1:
+          if len(''.join(x for x in l) + t[i + 1]) > width:
+              j, l[-1] = 0, l[-1].strip()
+              if len(l) > 2:
+                  while len(''.join(x for x in l)) < width:
+                      l[j] += ' '
+                      if j == len(l) - 2:
+                          j = 0
+                          continue
+                      j += 1
+              else:
+                  if len(l) == 2:
+                      l[1] = ''.join(c for c in l[1] if c != ' ')
+                      while len(''.join(x for x in l)) < width:
+                          l[0] += ' '
+                  if len(l) == 1:
+                      l[0] = l[0].strip()
+              ret += ''.join(x for x in l) + '\n'
+              l = []
+        else:
+            ret += (''.join(x for x in l)).strip() + '\n'
+            l = []
+    return ret
+
 def writetext(ln):
   sys.stdout.write(ln)
   sys.stdout.flush()
@@ -328,7 +385,9 @@ class Editor():
       'modified':False,
       'filetype':'txt',
       'offx':0,
-      'offy':0
+      'offy':0,
+      'bookmarks':[],
+      'bookindex':0
       })
 
   def reset(self):
@@ -347,6 +406,8 @@ class Editor():
     self.modified = 0
     self.search_results = []
     self.search_index = 0
+    self.bookmarks = []
+    self.bookindex = 0
     
   def is_separator(self, c):
     for ch in self.seperators:
@@ -372,9 +433,24 @@ class Editor():
       self.modified += 1
   
   def del_char(self):
+    if self.cury == len(self.buff)-1 and len(self.buff[self.cury])==0: return
     if self.curx<=len(self.buff[self.cury])-1:
       del self.buff[self.cury][self.curx]
       self.modified += 1
+    #elif self.curx == 0 and self.cury and len(self.buff[self.cury])==0:
+    elif self.cury and len(self.buff[self.cury])==0:
+      oldline = self.buff[self.cury][self.curx:]
+      del self.buff[self.cury]
+      #self.cury -= 1
+      self.curx = 0
+      self.buff[self.cury] += oldline
+      self.total_lines -= 1
+    elif self.curx == len(self.buff[self.cury]) and self.cury<len(self.buff)-1:
+      oldline = self.buff[self.cury+1]
+      del self.buff[self.cury+1]
+      #self.cury -= 1
+      self.buff[self.cury] += oldline
+      self.total_lines -= 1
   
   def delete_char(self):
     if self.curx:
@@ -389,13 +465,27 @@ class Editor():
       self.total_lines -= 1
     self.modified += 1
   
+  def goto_bookmark(self,to):
+    if len(self.bookmarks) == 0: return
+    if to == '-':
+      self.bookindex -= 1
+      if self.bookindex < 0:
+        self.bookindex = len(self.bookmarks)-1
+    else:
+      self.bookindex += 1
+      if self.bookindex > len(self.bookmarks)-1:
+        self.bookindex = 0
+        
+    self.curx = 0
+    self.cury = self.bookmarks[self.bookindex]
+    self.scroll_buffer()
+  
   def jumpto(self):
-    cmd = self.command_prompt('line:')
+    cmd = self.command_prompt('line: ')
     if not cmd: return
     if cmd.upper() == 'END': 
       self.scroll_end()
       return
-      
     try: cmd = int(cmd)
     except: return
     if cmd<1: cmd = 1
@@ -406,7 +496,6 @@ class Editor():
       self.show_prompt('Value is greater than total lines.')
     
   def compile(self):
-    if self.active == 4: return
     ext = self.filename.split('.')[-1].lower()
     if not (ext in COMPILE): 
       self.show_prompt('no compile command for this filetype...')
@@ -442,8 +531,7 @@ class Editor():
     
   
   def bashcmd(self):
-    if self.active == 4: return
-    cmd = self.command_prompt('command:')
+    cmd = self.command_prompt('shell cmd: ')
     cmd = cmd.split()
     try:
       if len(cmd) == 1:
@@ -459,9 +547,9 @@ class Editor():
       self.insert_line()
 
   def insert_strln(self,line):
-    self.cury += 1
     self.curx = 0
     self.buff.insert(self.cury, [] + list(line))
+    self.cury += 1
     self.total_lines += 1
   
   def insert_line(self):
@@ -482,7 +570,6 @@ class Editor():
     self.modified += 1
   
   def delete_line(self):
-    if self.active == 4: return
     if len(self.buff) == 1: return
     try:
       del self.buff[self.cury]
@@ -584,13 +671,16 @@ class Editor():
     if self.curx >= self.offx + self.COLS: self.offx = self.curx - self.COLS+1
 
   def print_status_bar(self):
+    global PLATFORM
     status = '\x1b[' + str(self.statusy) + ';1H'+COLOR_STATUS
-    status += "^H:Help |"
+    status += "^H:Help|"
     status += '^' if self.modified else ' '
-    status += self.filename[:20].ljust(20) + ' | ' + str(self.total_lines) + ' lines'+'|'+self.msg 
+    status += self.filename[:20].ljust(20,'.') + '|' + str(self.total_lines) + ' lines'+'|'+self.msg 
+    
+    ps = '|'+PLATFORM[:3].upper()
     
     i = 0
-    ps = ' | '
+    ps += '|'
     while i < 4:
       if self.active == i: ps += '#'
       elif len(self.windows[i]['buff'][0])>0: ps += str(i+1)
@@ -598,20 +688,24 @@ class Editor():
       i+=1
       
     
-    ps += ' | '+self.filetype.upper()+' '
+    ps += '|'+self.filetype.upper()
     
     if self.insert:
-      ps+="| INS "
+      ps+="|INS"
     else:
-      ps+="| OVR "
+      ps+="|OVR"
       
     if self.autoindent:
-      ps+="AUTO "
+      ps+="|AUTO|"
     else:
-      ps+="---- "
+      ps+="|----|"
     
-    ps += str(self.width).zfill(2)+' '
-    ps += str(self.cury+1).rjust(3,' ') + ':' + str(self.curx+1).rjust(2,'0')
+    ps += str(self.width).rjust(3)+'|'
+    if self.cury in self.bookmarks:
+      ps += 'B'
+    else:
+      ps += ' '
+    ps += str(self.cury+1).rjust(3) + ':' + str(self.curx+1).ljust(3)
     while len(stripansi(status)) < self.COLS - len(ps) -1: status += ' '
     status += ps + ' '
     status += '\x1b[m'
@@ -683,7 +777,25 @@ class Editor():
       content = f.read().split('\n')
       for line in content:
         if line.startswith('#`'):
-          self.insert_strln(line[2:])      
+          self.insert_strln(line[2:])
+    self.curx = 0
+    self.cury = 0
+    self.scroll_buffer()
+  
+  def edit_script(self):
+    self.changewindow(4)
+    self.reset()
+    self.buff.append([])
+    self.width = 120
+    self.filename = 'clied.py'
+    with open(sys.argv[0]) as f:
+      content = f.read().split('\n')
+      for line in content:
+        self.insert_strln(line)
+    self.filetype = 'py'
+    self.curx = 0
+    self.cury = 0
+    self.scroll_buffer()
   
   def set_suggest(self,value):
     self.autosuggest = value
@@ -713,7 +825,6 @@ class Editor():
     self.update_screen()
     
   def docommand(self):
-    if self.active == 4: return
     cmd = self.command_prompt('command: ',recomend=True)
     if cmd:
       self.history.append(cmd)
@@ -741,7 +852,7 @@ class Editor():
     elif c == ctrl(ord('w')): self.delb_word()
     elif c == ctrl(ord('h')): self.inhelp()
     elif c == ctrl(ord('t')): self.strip('right 1')
-    elif c == ctrl(ord('b')): self.bashcmd()
+    elif c == ctrl(ord('b')): self.toggle_bookmark()
     elif c == ctrl(ord('r')): self.command(self.history[-1]) # repeat last command
     elif c == ctrl(ord('v')): self.paste_lines('')
     elif c == ctrl(ord('c')): self.copy_lines('1')
@@ -752,6 +863,9 @@ class Editor():
     elif c == curses.KEY_F3: self.changewindow(2)
     elif c == curses.KEY_F4: self.changewindow(3)
     elif c == curses.KEY_F7: self.compile()
+    elif c == curses.KEY_F5: self.edit_script()
+    elif c == curses.KEY_F9:  self.goto_bookmark('-')
+    elif c == curses.KEY_F10: self.goto_bookmark('+')
     elif c == curses.KEY_IC: self.insert=not self.insert
     elif c == curses.KEY_DC: self.del_char()
     elif c == curses.KEY_RESIZE: self.resize_window()
@@ -789,9 +903,12 @@ class Editor():
     self.windows[self.active]['total'] = self.total_lines
     self.windows[self.active]['modified'] = self.modified
     self.windows[self.active]['width'] = self.width
+    self.windows[self.active]['bookmarks'] = self.bookmarks.copy()
+    self.windows[self.active]['bookindex'] = self.bookindex
     #activate new window
     self.active = win
     self.buff.clear()
+    self.bookmarks.clear()
     self.buff = self.windows[self.active]['buff'].copy()
     self.filename = self.windows[self.active]['filename']
     self.filetype = self.windows[self.active]['filetype']
@@ -806,10 +923,19 @@ class Editor():
     self.total_lines = self.windows[self.active]['total']
     self.modified = self.windows[self.active]['modified']
     self.width = self.windows[self.active]['width']
+    self.bookmarks = self.windows[self.active]['bookmarks'].copy()
+    self.bookindex = self.windows[self.active]['bookindex']
     
     self.scroll_buffer()
     self.update_screen()
-    
+  
+  def toggle_bookmark(self):
+    if self.cury in self.bookmarks:
+      self.bookmarks.remove(self.cury)
+    else:
+      self.bookmarks.append(self.cury)
+      self.bookmarks.sort()
+      self.bookmarks = list(set(self.bookmarks.copy()))
   
   def clear_prompt(self, line):
     command_line = line
@@ -925,11 +1051,18 @@ class Editor():
             'align','al','strip','st','ascii','ansi','clear','reset','commend','cm',\
             'uncomment','date','dt','line','repeat','rep','indent','ind','delete','del',\
             'copy','cp','paste','pt','get','insert','mci','box','menul','menuc','saveas',
-            'spell','open','load','bash']
+            'spell','open','load','bash','justify','just','shell','bookmark','book','format',\
+            'fmt','crlf']
             self.dorecommend(word,pos+len(prompt),RECOMEND=recomended)
           else:
             if keyword[:keyword.find(' ')] in ['ALIGN','AL']:
               recomended=['align <left|right|center> [lines] : align text for line(s)']
+              self.dorecommend(word,pos+len(prompt),True,RECOMEND=recomended)
+            elif keyword[:keyword.find(' ')] in ['FORMAT','FMT']:
+              recomended=['format <lower|caps|upper|title> [lines] : change capitalization for line(s)']
+              self.dorecommend(word,pos+len(prompt),True,RECOMEND=recomended)
+            elif keyword[:keyword.find(' ')] in ['JUSTIFY','JUST']:
+              recomended=['justify <lines> : justify text for line(s), at least 2!']
               self.dorecommend(word,pos+len(prompt),True,RECOMEND=recomended)
             elif keyword[:keyword.find(' ')] in ['STRIP','ST']:
               recomended=['strip <left|right|center> [lines|all] : strip text for line(s)']
@@ -991,6 +1124,12 @@ class Editor():
             elif keyword[:keyword.find(' ')] in ['BOX']:
               recomended=['box <type> : inserts an ASCII box']
               self.dorecommend(word,pos+len(prompt),True,RECOMEND=recomended)
+            elif keyword[:keyword.find(' ')] in ['CRLF']:
+              recomended=['CRLF <dos|win|linux> : changes the ending line method']
+              self.dorecommend(word,pos+len(prompt),True,RECOMEND=recomended)
+            elif keyword[:keyword.find(' ')] in ['BOOKMARK','BOOK']:
+              recomended=['bookmark : toggles, sets or unsets a bookmark in current line']
+              self.dorecommend(word,pos+len(prompt),True,RECOMEND=recomended)
             elif keyword[:keyword.find(' ')] in ['MENUC','MENUL']:
               recomended=['menu [header] [option1] [option2] .. : inserts a menu box']
               self.dorecommend(word,pos+len(prompt),True,RECOMEND=recomended)
@@ -1009,8 +1148,7 @@ class Editor():
       
     
   def command(self,command):
-    global BSD_NOTICE, GPL_NOTICE, HTML_BODY
-    if self.active == 4: return
+    global BSD_NOTICE, GPL_NOTICE, HTML_BODY, PLATFORM
     cmd = command
     if not cmd: return
     cmd = cmd.split()
@@ -1032,6 +1170,10 @@ class Editor():
       self.setfiletype(params.lower())
     elif cmd == 'ALIGN' or cmd == 'AL':
       self.align(params)
+    elif cmd == 'FORMAT' or cmd == 'FMT':
+      self.format(params)
+    elif cmd == 'JUSTIFY' or cmd == 'JUST':
+      self.justify(params)
     elif cmd == 'STRIP' or cmd == 'ST':
       self.strip(params)
     elif cmd == 'SAVEAS':
@@ -1050,12 +1192,18 @@ class Editor():
       self.dosuggest(params)
     elif cmd == 'BOX': 
       self.box2(params)
+    elif cmd == 'CRLF': 
+      crlf(params)
+    elif cmd == 'BASH' or cmd == 'SHELL': 
+      self.bashcmd()
     elif cmd == 'OPEN' or cmd == 'LOAD': 
       self.load_file(params)
     elif cmd == 'CLEAR' or cmd == 'RESET': # Reset the editor
       self.new_file()
     elif cmd == 'COMMENT' or cmd == 'CM':
       self.comment(params+' +')
+    elif cmd == 'BOOKMARK' or cmd == 'BOOK':
+      self.toggle_bookmark()
     elif cmd == 'UNCOMMENT':
       self.comment(params+' -')
     elif cmd == 'DATE' or cmd == 'DT':
@@ -1145,7 +1293,7 @@ class Editor():
     else:
       self.set_suggest(False)
     self.update_screen()
-      
+          
   def mci(self,params):
     codes = params.upper()
     index = 0
@@ -1226,7 +1374,6 @@ class Editor():
     elif params == 'CLEAR': self.insert_str(ansi['clear'])
     elif params == 'CLS': self.insert_str(ansi['clear'])
     elif params == 'GOTO': self.insert_str(ansi['goto'])
-    elif params == 'RESET': self.insert_str(colors['reset'])
     elif params == 'REVERSE': self.insert_str(colors['reverse'])
     else:
       try:
@@ -1358,7 +1505,6 @@ class Editor():
     pyperclip.copy(content)
     
   def paste_lines(self,params):
-    if self.active == 4: return
     self.insert_paragraph(pyperclip.paste())
     
   def align(self,param):
@@ -1388,11 +1534,55 @@ class Editor():
       elif altype == 'RIGHT':
         self.buff[row]=list(line.rjust(self.width,char))
       elif altype == 'CENTER':
-        self.buff[row]=list(line.center(self.width,char))
+        self.buff[row]=list(line.center(self.width,char).rstrip())
       self.modified += 1
+      
+  def format(self, param):
+    param = param.split()
+    altype = param[0].upper()
+    char = ' ' 
+    end = 1
+    if len(param)==2:
+      end = param[1].upper()
+    if len(param)==3:
+      char = param[2]
+    
+    if end == 'ALL':
+      start_row = 0
+      end_row = len(self.buff)
+    else:
+      start_row = self.cury
+      end_row = self.cury + int(end)
+      
+    for row in range(start_row, end_row):
+      if row>len(self.buff)-1: break
+      line = ''.join(self.buff[row]).strip()
+      if altype == 'LOWER':
+        self.buff[row]=list(line.lower())
+      elif altype == 'UPPER' or altype == 'CAPITAL':
+        self.buff[row]=list(line.upper())
+      elif altype == 'TITLE':
+        self.buff[row]=list(string.capwords(line))
+      self.modified += 1
+  
+  def justify(self,params):
+    start_row = self.cury
+    end_row = 2
+    if params:
+      if params.split()[0].upper() == 'ALL':
+        start_row = 0
+        end_row = len(self.buff)
+      else:
+        end_row = self.cury + int(params.split()[0])
+    else: end_row = self.cury+1
+    content = ''
+    for row in range(start_row, end_row):
+      line = ''.join(self.buff[row]).strip()+'\n'
+      content += line
+      self.modified += 1
+    self.insert_paragraph(justify(content,self.width))
     
   def del_eol(self):
-    if self.active == 4: return
     line = ''.join(self.buff[self.cury])
     line = line[:self.curx]
     self.buff[self.cury]=list(line)
@@ -1451,7 +1641,7 @@ class Editor():
   def search(self):
     self.search_results = []
     self.search_index = 0
-    word = self.command_prompt('search:')
+    word = self.command_prompt('search: ')
     for row in range(len(self.buff)):
       buffrow = self.buff[row]
       for col in range(len(buffrow)):
@@ -1470,7 +1660,6 @@ class Editor():
       self.search_index += 1
 
   def load_file(self):
-    if self.active == 4: return
     if self.modified:
       ans = self.getkey('current document is modified. save? y/n','YN')
       if chr(ans) in 'Yy':
@@ -1483,6 +1672,7 @@ class Editor():
       self.show_prompt('file not found!')
     
   def open_file(self, filename):
+    global PLATFORM
     self.reset()
     try:
       with open(filename) as f:
@@ -1493,20 +1683,21 @@ class Editor():
     if filename:
       self.filename = filename
       self.filetype = self.filename.split('.')[-1]
+      PLATFORM = isdosfile(filename)
       if '.txt' in filename: self.highlight = False
       else: self.highlight = True
     self.total_lines = len(self.buff)
     self.update_screen()
   
   def saveas_ansi(self):
-    fn = self.command_prompt('filename:',self.filename)
+    fn = self.command_prompt('filename: ',self.filename)
     if fn:
       self.filename = fn
     else:
       self.show_prompt('Aborting...')
       return
     prep = self.getkey('video preparation? [C]lear Screen, [H]ome Cursor, [N]one: ','CHN')
-    with open(self.filename, 'w') as f:
+    with open(self.filename, 'w', newline=crlf()) as f:
       content = ''
       for row in self.buff:
         content += ''.join([c for c in row]) + '\n'
@@ -1518,7 +1709,8 @@ class Editor():
     self.modified = 0
   
   def quicksave_file(self):
-    with open(self.filename, 'w') as f:
+    #open('tmpfile', 'w', newline='\r\n') as f:
+    with open(self.filename, 'w', newline=crlf()) as f:
       content = ''
       for row in self.buff:
         content += ''.join([c for c in row]) + '\n'
@@ -1526,21 +1718,20 @@ class Editor():
     self.modified = 0
     
   def save_buff(self,buf,filename):
-    with open(filename, 'w') as f:
+    with open(filename, 'w', newline=crlf()) as f:
       content = ''
       for row in buf:
         content += ''.join([c for c in row]) + '\n'
       f.write(content)
    
   def save_file(self,params):
-    if self.active == 4: return
-    fn = self.command_prompt('filename:',self.filename)
+    fn = self.command_prompt('filename: ',self.filename)
     if fn:
       self.filename = fn 
       self.quicksave_file()
       
   def extract_lines(self,params):
-    fn = self.command_prompt('filename:',self.filename)
+    fn = self.command_prompt('filename: ',self.filename)
     if fn:
       end = params.upper()
       start_row = self.cury
@@ -1552,7 +1743,7 @@ class Editor():
         except: end_row = self.cury + 1
 
       if end_row > len(self.buff)-1: end_row = len(self.buff)-1
-      with open(fn, 'w') as f:
+      with open(fn, 'w', newline=crlf()) as f:
         content = ''
         for row in range(start_row, end_row):
           line = ''.join(self.buff[row])
@@ -1561,7 +1752,6 @@ class Editor():
       
 
   def new_file(self):
-    if self.active == 4: return
     self.reset()
     self.buff.append([])
     self.total_lines = 1
@@ -1577,7 +1767,7 @@ class Editor():
         if self.windows[i]['modified']:
           cmd = self.getkey('save text from window['+str(i)+'] before exit? y/n: ','YN')
           if chr(cmd) in 'Yy':
-            fn = self.command_prompt('window['+str(i)+'] filename:',self.windows[i]['filename'])
+            fn = self.command_prompt('window['+str(i)+'] filename: ',self.windows[i]['filename'])
             if fn:
               self.save_buff(self.windows[i]['buff'],fn)
             
@@ -1600,34 +1790,391 @@ if __name__ == '__main__':
   os.environ['ESCDELAY'] = "25"
   curses.wrapper(main)
 
-#` Help and Shortcuts...
-#` ---------------------
+#`  
+#`  --------------------------------------------------------------------------
+#`  CliEdit v1.0 - Made by XQTR of Another Droid BBS // andr01d.zapto.org:9999
+#`  --------------------------------------------------------------------------
+#`                        
+#`                           Press ESC or F1 to go back
+#`                        
+#`       * Sections with an asterisk are not supported yet in this version.
+#`                        
+#`  ------------------
+#`  Keyboard Shortcuts
+#`  ------------------
+#`  
+#`      CTRL-Q : Exit
+#`      CTRL-X : Enter Command Prompt
+#`         ESC : Enter Command Prompt
+#`      CTRL-O : Open/Load file
+#`      CTRL-N : New file / Resets current window
+#`      CTRL-S : Save document
+#`      CTRL-F : Find
+#`      CTRL-G : Find next
+#`      CTRL-E : Clear to End Of Line (EOL)
+#`      CTRL-D : Delete current line
+#`      CTRL-W : Delete previous word
+#`      CTRL-H : This help screen
+#`      CTRL-T : Strip space in right side for current line
+#`      CTRL-B : Toggle bookmark
+#`      CTRL-R : Repeat last command
+#`      CTRL-V : Paste from clipboard
+#`      CTRL-C : Copy to clipboard
+#`      CTRL-A : Toggle AutoIndent/Spaces
+#`      CTRL-L : Jump to line
+#`          F1 : Change to Window #1
+#`          F2 : Change to Window #2
+#`          F3 : Change to Window #3
+#`          F4 : Change to Window #4
+#`          F5 : Edit source code of this script
+#`          F7 : Compile code in current window
+#`          F9 : Go to previous bookmark
+#`         F10 : Go to next bookmark 
+#`         INS : Toggle Insert/Overwrite mode
+#`    CTRL-END : Go to end of document
+#`   CTRL-HOME : Go to start of document   
+#`   CTRL-LEFT : Move cursor to previous word
+#`  CTRL-RIGHT : Move cursor to next word
+#`  --------------------------------------------------------------------------
+#`    
+#`  -----------------------
+#`  Command Prompt Commands
+#`  -----------------------
+#`  
+#`  Pressing  ESC  or  CTRL-X, will invoke the command prompt. In there you can
+#`  type  various supported commands to format the document and not only. While
+#`  in the command prompt, press ESC to cancel and/or leave the command prompt.
+#`  Below  is  a  list  with  all  supported commands and their paramaters. The
+#`  commands are case insensitive.
+#`  --------------------------------------------------------------------------
+#`  
+#`  align <left|right|center> [lines] 
+#`  al <left|right|center> [lines] 
+#`    
+#`    Aligns text for n line(s). If the number of lines is not given, it will 
+#`    align the current line, only.
+#`    
+#`    Example: align center 10
+#`    Aligns the text in center, from the current line and for the next 10 
+#`    lines.
+#`  --------------------------------------------------------------------------
+#`    
+#`  justify <lines> 
+#`  just <lines> 
+#`  
+#`    Justifies text for n line(s). The number must be greater from 2. It 
+#`    will justify the text from current line and for the n next lines. 
+#`    Because, the resulted justified text could be less lines than the 
+#`    original, the command will not erase the previous lines and it will 
+#`    insert the new justified text in the current position.
+#`    
+#`    Example: justify 10
+#`    It will justify and insert the text from the current line and for the 
+#`    next 10 lines.
+#`  --------------------------------------------------------------------------
+#`    
+#`  strip <left|right|center> [lines|all] 
+#`  st <left|right|center> [lines|all] 
+#`    
+#`    Strips empty space from text, for n lines. If no number of lines is 
+#`    given it will strip only the current line. If the ALL paramater is 
+#`    given it will strip spaces from the whole document.
+#`    
+#`    Example: strip right all
+#`    Will strip spaces from the right side of text, for the whole document.
+#`  --------------------------------------------------------------------------
+#`  
+#`  format <lower|caps|upper> [lines]
+#`  
+#`    Change capitalization for n line(s) or current line if no number is 
+#`    given. The format can be:
+#`    
+#`    caps or upper - All capital
+#`    lower         - All lower case
+#`    title         - Make the first letter of each word in capital
+#`  --------------------------------------------------------------------------  
+#`  
+#`  insert <gpl|bsd|blog|script|html|python|pascal> 
+#`  ins <gpl|bsd|blog|script|html|python|pascal> 
+#`  
+#`    Inserts text templates for various things, like a BSD license, a Python 
+#`    script or even a text blog post.
+#`    
+#`    Example: insert html
+#`    It will insert a HTML template
+#`  --------------------------------------------------------------------------
+#`  
+#`  filetype <pascal|python|c|bas|delphi|text|bbcode|html|none|bash|mpy|mpl>
+#`  fl <pascal|python|c|bas|delphi|text|bbcode|html|none|bash|mpy|mpl>
+#`  
+#`    Changes the file type for current document. This is used for the syntax 
+#`    highlighting feature.
+#`    
+#`    Example: fl bash
+#`    Will highlight the text, based on BASH syntax
+#`  --------------------------------------------------------------------------
+#`   
+#`  ascii
+#`  
+#`    It will give you a prompt to enter an ASCII number, to insert the 
+#`    specific ASCII character. If you type 254, it will enter the 254th 
+#`    char. from the ASCII table.
+#`  --------------------------------------------------------------------------
+#`  
+#`  width <num> 
+#`  
+#`    Sets document width to <num> cols.
+#`  
+#`    Example: width 80
+#`    Will set the width to 80 character per line.
+#`  --------------------------------------------------------------------------
+#`  
+#`  indent <rows> <cols> [+/-] 
+#`    
+#`    Adds or removes spaces for y rows and x cols after the current 
+#`    position.
+#`    
+#`    Example: indent 3 2 +
+#`    Will add 2 spaces in each line, for the current line and two more (3 in 
+#`    total). If you give: indent 3 2 -, it will remove them
+#`  --------------------------------------------------------------------------  
+#`    
+#`  repeat <cols> <char> 
+#`  rep <cols> <char> 
+#`  line <cols> <char> 
+#`  
+#`    Repeats the <char> for <cols> columns. Great to make ascii lines like 
+#`    the ones in here :)
+#`    
+#`    line 80 -
+#`    Repeats the character - for 80 times
+#`  --------------------------------------------------------------------------
+#`  
+#`  open 
+#`  load 
+#`  
+#`    Loads a text document to current window. After the command a prompt 
+#`    will ask for the filename.
+#`  --------------------------------------------------------------------------
+#`  
+#`  crlf <win|dos|linux|unix>
+#`  
+#`    Changes the format of the line ending in file. When you open a file the 
+#`    editor detects the line ending format and displays that in the status 
+#`    bar. If you want to save the file in a different format, use this 
+#`    command.
+#`    
+#`    Example: crlf dos
+#`    Changes the line ending to \r\n
+#`    
+#`    Windows and DOS uses the same line ending format, the parameters DOS 
+#`    and WIN will result in the same format. There are there just for 
+#`    convenience.
+#`  --------------------------------------------------------------------------  
+#`
+#`  comment <num> 
+#`  cm <num> : comment <num> lines
+#`  
+#`    Will add the comment symbol # from the current line and for <num> lines 
+#`    next.
+#`  --------------------------------------------------------------------------
+#`  
+#`  uncomment <num> 
+#`  
+#`    Removes the comment symbol # for the next <num> lines.
+#`  --------------------------------------------------------------------------
+#`  
+#`  extract <num|all> : saves <num> lines to a file
+#`  
+#`    Extracts <num> lines from the current position to another file.
+#`  --------------------------------------------------------------------------
+#`  
+#`  bash
+#`  
+#`    Lets you insert the output of a SHELL command in the current document.
+#`  --------------------------------------------------------------------------
+#`  
+#`  delete <num|all> 
+#`  del <num|all> 
+#`  
+#`    Deletes the next <num> lines, from current position
+#`  --------------------------------------------------------------------------
+#`  
+#`  copy <num|all> 
+#`  cp <num|all> 
+#`  
+#`    Copies to clipboard <num> lines or the whole document  
+#`  --------------------------------------------------------------------------
+#`  
+#`  paste
+#`  pt
+#`  
+#`    Pastes clipboard in current postion.
+#`  --------------------------------------------------------------------------
+#`  
+#`  get <url|file> [codepage]
+#`  
+#`    Inserts a local file or a file from the internet. Default codepage is 
+#`    UTF8. If you get a codepage error try another one, like ascii, cp437 
+#`    etc.
+#`    
+#`    Example: get https://16colo.rs/pack/laz16/raw/FILE_ID.DIZ cp437
+#`    Inserts the specified file from the internet.
+#`  --------------------------------------------------------------------------
+#`  
+#`  spell <on|off> 
+#`  
+#`    Turns on/off spell suggestions. You can't insert a suggestion, only see 
+#`    them.
+#`  --------------------------------------------------------------------------
+#`  
+#`  ansi <param>
+#`  
+#`    Inserts an ANSI Code for the given parameter. The paramater can be a 
+#`    color or a special ansi code. Acceptable paramaters are:
+#`    
+#`    black, blue, green, cyan, red, magenta, brown, grey, darkgrey, lightblue,
+#`    lightgreen, lightcyan, lightred, lightmagenta, yellow, white, reset, 
+#`    clear, cls, goto, reverse and also integer values of colors.
+#`    
+#`    Example: ansi 14
+#`    Will insert the equivelant ansi code for color yellow
+#`  --------------------------------------------------------------------------
+#`  
+#`  mci <code> 
+#`  
+#`    Inserts a mystic bbs MCI code. Supported MCI codes are:
+#`    
+#`    00 to 23 for colors
+#`    TI - current time
+#`    US - height of terminal
+#`    DA - current date
+#`    UX - hostname
+#`    UY - local ip
+#`  --------------------------------------------------------------------------
+#`  
+#`  box <type> 
+#`  
+#`    Inserts a predefined ASCII box. <type> is an integer from 1.    
+#`  --------------------------------------------------------------------------
+#`  
+#`  bookmark 
+#`    
+#`    Toggles, sets or unsets a bookmark in current line.
+#`  --------------------------------------------------------------------------
+#`  
+#`  menuc [header] [option1] [option2] ..
+#`  menul [header] [option1] [option2] ..
+#`  
+#`    Inserts a menu box with [header] and as many options/items you like. 
+#`    menuc is for centered items and menul for left aligned items.
+#`    
+#`    Example: menuc PopUp item1 item2 item3
+#`    Will insert the following ascii box.
+#`    .----- PopUp -----.
+#`    |      item1      |
+#`    |      item2      |
+#`    |      item3      |
+#`    `-----------------'
+#`  --------------------------------------------------------------------------
+#`  
+#`  saveas <type> *
+#`  
+#`    Saves/exports the document in a different format. Currently supported 
+#`    formats are:
+#`    
+#`    gopher: saves the document as a gophermap file
+#`    ansi  : saves the document as an ansi file, will ask for SAUCE data.
+#`  --------------------------------------------------------------------------
+#`
+#`  ----------
+#`  Status Bar
+#`  ----------
+#`  
+#`  Lets explain a bit the indications of the status bar.
+#`  
+#` ^H:Help|^test.pas............|30 lines|     |WIN|#...|PAS|INS|AUTO| 80|B 24:1
+#`         |  |                   |              |   |    |   |   |    |  | |
+#`         |  |                   |    line ending   |    |   |   |    |  | |
+#`         |  |                   |                  |    |   |   |    |  | |
+#`         |  |                   |            windows    |   | indent |  | |
+#`         |  |                   |                       |   |        |  | |
+#`         |  |                   |                filetype   |        |  | |
+#`         |  |                   |                           |        |  | |
+#`         |  |                   |       insert/overwrite mode        |  | |
+#`         |  |                   |                                    |  | |
+#`         |  |                   total lines          width of document  | |
+#`         |  |                                                           | |
+#`         |  filename                       a bookmark is set in this line |
+#`         |                                                                |
+#`         file is changed and not saved                      cursor position
+#`  ----------------------------------------------------------------------------
 #`
 #`
-#`CTRL-N    : New File                CTRL-F : Find String
-#`CTRL-S    : Save File               CTRL-G : Search Again
+#`  -----------------
+#`  About this editor
+#`  -----------------
+#`  
+#`  Because  i  am  making  mods  for  the  BBS  scene  and  in  general i like
+#`  ANSI/ASCII/Terminal  stuff,  i  had  the  need for a text editor like this.
+#`  Plain and simple, but powerful for the things i do. RMDOK, "real men, do it
+#`  on  keyboard"  they  say, so i wanted an editor that uses only the keyboard
+#`  and  not  even  light bar menus. Every function is either set on a keyboard
+#`  shortcut or in a command typed in the prompt. Some may like it, others will
+#`  definitely wont. For sure it's not for everyone.
+#`  
+#`  I  made it with Python, not because i like Python or i think it's powerful.
+#`  I  only did it, because Python is everywhere now days. In every PC and even
+#`  smartphones.  So  with only a git command, you can have this editor in your
+#`  system,  in  seconds. Also, because Python is a scripting language, you can
+#`  have  the  source  code at your hands and change everything on the fly! You
+#`  can  change colors, syntax highlighting scheme, commands, anything! You can
+#`  even edit the script from inside the editor.
+#`  ----------------------------------------------------------------------------
+#`  
+#`  
+#`  ------------
+#`  Installation
+#`  ------------
+#`  
+#`  First download the editor from my github repo. Just give the command:
+#`  
+#`  git clone https://github.com/xqtr/clied
+#`  
+#`  Then, install some additional Python libraries, like SpellChecker and 
+#`  Pyperclip with these commands:
+#`  
+#`  pip install spellchecker
+#`  pip install pyperclip
+#`  
+#`  Try run it, it should be ok. You could remove the spell suggestion and 
+#`  the use of the clipboard, if you want to have a version of the editor 
+#`  with only default Python packages.
+#`  ----------------------------------------------------------------------------
 #`
-#`CTRL-D    : Delete Line             CTRL-W : Delete to prev. word
-#`                                    CTRL-C : Enter Editor/App. Command
-#`CTRL-A    : Auto Indent             CTRL-B : Insert Command Output
 #`
-#`CTRL-END  : End of Document         CTRL-RIGHT Cursor : Next Word
-#`CTRL-HOME : Start of Document       CTRL-LEFT Cursor  : Prev. Word
-#`                                    CTRL-SHIFT-TAB    : Backward TAB
-#`
-#` Commands...
-#` -----------
-#`
-#`date [format]           : insert current date - formats: ymd, mdy, dmy
-#`time                    : insert current time
-#`width <cols>            : set width for document
-#`filetype <type>         : set filetype, for highlighting
-#`                          types: pascal, python, basic, c, html, bbcode
-#`align <side> [char]     : align current line text, with giver char
-#`                          side: left, right, center
-#`ascii <num>             : insert ascii char
-#`comment <n>             : comment the n next lines
-#`uncomment <n>           : uncomment the n next lines
-#`repeat <width> <char>   : repeat the given character to given width
-#`line <width> <char>     : same us repeat
-#`indent <rows> <cols> [+/-] : un/indent the following lines with <cols> spaces,
+#`  ---------
+#`  Functions
+#`  ---------
+#`  
+#`  Let see what this editor can do:
+#`  
+#`  - Align left/center/right text
+#`  - Justify text
+#`  - Strip spaces from text
+#`  - Insert ANSI codes
+#`  - Insert upper ASCII codes
+#`  - Format text (lower, upper, title)
+#`  - Insert text templates for various formats
+#`  - Insert strings like Date, Time, Colors, MCI codes and even Shell 
+#`    commands output.
+#`  - Support syntax highlight for many languages and also Mystic BBS, MPY and 
+#`    MPS. You can also add your own and/or extend the ones used.
+#`  - Spell suggestions and on the fly help for commands
+#`  - Apply functions to blocks of text
+#`  - Extract block of text in external file and clipboard\
+#`  - Insert text from external file or even from a downloaded file in the 
+#`    Internet.
+#`  - Insert predefined ASCII boxes
+#`  - Create ASCII menus with a simple command
+#`  - Can handle and navigate Bookmarks, for easy navigation in the text
