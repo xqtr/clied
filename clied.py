@@ -3,14 +3,12 @@ import curses
 import sys,os
 import urllib.request
 from pygments.lexer import RegexLexer, inherit, words, bygroups
-
 from pygments.lexers import PythonLexer, CLexer, BBCodeLexer, DelphiLexer, \
      HtmlLexer,QBasicLexer,BashLexer
 from pygments.formatters import TerminalFormatter
 from pygments.token import Keyword, Name, Comment, String, Error, \
      Number, Operator, Generic, Token, Whitespace, Text, Punctuation
 from pygments import highlight
-#from subprocess import check_output
 import subprocess
 import datetime
 from time import sleep
@@ -699,7 +697,6 @@ class Editor():
     writetext(ln)
     self.show_prompt('press a key to continue...')
     self.pause()
-    
   
   def bashcmd(self):
     cmd = self.command_prompt('shell cmd: ')
@@ -753,12 +750,14 @@ class Editor():
 
   def move_home(self):
     spaces = 0
-    if len(self.buff[self.cury])>0:
+    if len(''.join(self.buff[self.cury]).strip())>0:
       while self.buff[self.cury][spaces] == ' ': spaces += 1
       if self.curx != spaces:
         self.curx = spaces
       else:    
         self.curx = 0
+    else:
+      self.curx = 0
     
   def move_cursor(self, key):
     row = self.buff[self.cury] if self.cury < self.total_lines else None
@@ -1049,7 +1048,7 @@ class Editor():
     elif c == curses.KEY_RIGHT: self.move_cursor(c)
     elif c == curses.KEY_UP: self.move_cursor(c)
     elif c == curses.KEY_DOWN: self.move_cursor(c)
-    elif c == curses.KEY_BACKSPACE: self.delete_char()
+    elif c == curses.KEY_BACKSPACE or chr(c) == '\b' or chr(c) == '\x7f': self.delete_char()
     elif c == curses.KEY_NPAGE: self.scroll_page(c)
     elif c == curses.KEY_PPAGE: self.scroll_page(c)
     elif c == 530: self.scroll_end()
@@ -1226,7 +1225,7 @@ class Editor():
             'uncomment','date','dt','line','repeat','rep','indent','ind','delete','del',\
             'copy','cp','paste','pt','get','insert','mci','box','menul','menuc','saveas',
             'spell','open','load','bash','justify','just','shell','bookmark','book','format',\
-            'fmt','crlf','gopher']
+            'fmt','crlf','gopher','help']
             self.dorecommend(word,pos+len(prompt),RECOMEND=recomended)
           else:
             if keyword[:keyword.find(' ')] in ['ALIGN','AL']:
@@ -1361,6 +1360,8 @@ class Editor():
       self.insert_char(chr(int(params)))
     elif cmd == 'ANSI': # ANSI Color
       self.ansistring(params)
+    elif cmd == 'HELP': 
+      self.inhelp()
     elif cmd == 'MCI': 
       self.mci(params)
     elif cmd == 'MENUC': 
