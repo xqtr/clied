@@ -1,5 +1,3 @@
-# clied
-```
   
   --------------------------------------------------------------------------
   CliEdit v1.0 - Made by XQTR of Another Droid BBS // andr01d.zapto.org:9999
@@ -471,5 +469,3 @@
   https://github.com/KonstantinosAng/CodeWars/blob/master/Python/
   %5B4%20kyu%5D%20Text%20align%20justify.py
   
-
-```

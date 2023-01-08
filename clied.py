@@ -24,6 +24,7 @@ from spellchecker import SpellChecker
 # Portuguese - ‘pt’, German - ‘de’, Russian - ‘ru’, Arabic - ‘ar’
 spell = SpellChecker(language='en')
 
+GOPHER = {"host":"localhost","port":"70","width":76,"hr":"-"*76}
 PATHSEP = {"win32":"\r\n", 'linux':"\n" } 
 PLATFORM = sys.platform
 
@@ -101,6 +102,18 @@ colors = {
   23:"\033[47m"
 }
 
+colorsbg = {
+  0:"\033[1;30m",
+  1:"\033[1;34m",
+  2:"\033[1;32m",
+  3:"\033[1;36m",
+  4:"\033[1;31m",
+  5:"\033[1;35m",
+  6:"\033[1;33m",
+  7:"\033[1;37m",
+}
+
+COLOR_TEXT = colors[7]+colors[16]
 COLOR_STATUS = colors[0]+colors[23]
 COLOR_SUGGEST = colors[0]+colors[22]
 
@@ -266,12 +279,34 @@ class MPYLexer(PythonLexer):
             else:
                 yield index, token, value
 
+# adds a path delimeter at the end of the path, if doesn't exist
+def dirslash(d):
+  if d[-1:]!=os.sep:
+    d = d+os.sep
+  return d
+  
+# a regex simple replace function used in the gophermap function
+def replace(s,old,new):
+  a = re.sub(old, new, s, flags=re.IGNORECASE)
+  return a
+  
+# return the output of figlet, used for the [h1], [h2] bbcodes for gopher files
+def figleth1(text):
+  k = subprocess.check_output('figlet '+text, shell=True)
+  return k.decode().splitlines()
+  
+def figleth2(text):
+  k = subprocess.check_output('figlet '+text+' -f small', shell=True)
+  return k.decode().splitlines()
+
+# checks if a CRLF is in file, if it is, then the file is in DOS/WIN format    
 def isdosfile(fn): #
   if "\r\n" in open(fn,"rb").read().decode():
     return 'win32'
   else:
     return 'linux'
 
+# sets and returns the correct CRLF type, according to the choosing of the user
 def crlf(default=None):
   global PATHSEP, PLATFORM
   if default:
@@ -287,7 +322,9 @@ def crlf(default=None):
     elif s == '\r\n':
       PLATFORM = 'win32'
   return PATHSEP[PLATFORM]
-  
+
+# full paragraph justify function. 
+# the function is from here: https://github.com/KonstantinosAng/CodeWars/blob/master/Python/%5B4%20kyu%5D%20Text%20align%20justify.py  
 def justify(text, width):
     if not text: return ''
     if width == 0: return ''
@@ -319,19 +356,19 @@ def justify(text, width):
             ret += (''.join(x for x in l)).strip() + '\n'
             l = []
     return ret
-
+# writes text to the screen
 def writetext(ln):
   sys.stdout.write(ln)
   sys.stdout.flush()
-
+# strips any ansi codes from a string
 def stripansi(line):
   ansi_escape = re.compile(r'(?:\x1B[@-_]|[\x80-\x9F])[0-?]*[ -/]*[@-~]')
   return ansi_escape.sub('', line)
-  
+# left justifies a line that may contain ansi codes, so the actual text has the preferred width
 def ljustansi(line,w):
   while len(stripansi(line)) < w: line+=' '
   return line
-
+# gets the actual local ip
 def get_ip():
   s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
   s.settimeout(0)
@@ -344,6 +381,140 @@ def get_ip():
   finally:
     s.close()
   return IP
+# this function translates a bbcode file to a gophermap file. read help text.
+def gophermap(sfile,dfile,ismap=True):
+  global GOPHER
+  f = open(sfile,'r')
+  lines = f.read().splitlines()
+  f.close()
+  i = 0
+  l = ''
+  output = []
+  while i<len(lines):
+    l = lines[i]
+    linetype = ""
+    # this code is to ignore the text between in gophermap files
+    if '[#WWW]' in l.upper():
+      i += 1
+      l = lines[i]
+    #INCLUDE, includes an external file
+    if '[INCLUDE]' in l.upper():
+      l= replace(l,'\[include\]','')
+      l= replace(l,'\[/include\]','')
+      incfile = l
+      if not os.path.isfile(incfile):
+        incfile=programpath+incfile
+        if not os.path.isfile(incfile):
+          incfile = dirslash(home_folder)+ l
+      if os.path.isfile(incfile):
+        inc = open(incfile,'r')
+        alist = inc.read().splitlines()
+        for a in alist:
+          output.append('i'+a+'\t\n')
+        lines[i]=' '
+        l=' '
+        linetype = 'include'
+      else:
+        print('! Included file: '+l.ljust(30,' ')+' not found')
+     # VARIOUS REPLACES
+    l = replace(l,'\[#gopher\]','') # ignores the text when translating in www mode
+    l = replace(l,'\[/#gopher\]','')
+    # insert date and time
+    l = replace(l,'\[date\]',datetime.datetime.now().strftime("%Y/%m/%d")) 
+    l = replace(l,'\[time\]',datetime.datetime.now().strftime("%H:%M:%S"))
+    # inserts an ascii ruler
+    l = replace(l,'\[hr\]',GOPHER['hr'])
+    l = replace(l,'\[host\]',GOPHER['host'])
+    l = replace(l,'\[port\]',GOPHER['port'])
+    # makes a shell type line in gopher
+    l = replace(l,'\[shell\]','=')
+    l = replace(l,'\[/shell\]','')
+    #H1, uses figlet to make some nice font
+    if '[H1]' in l.upper():
+      l= replace(l,'\[h1\]','')
+      l= replace(l,'\[/h1\]','')
+      #l = l.strip()
+      h1 = figleth1(l)
+      for h in h1:
+        if h.strip()!="":
+          #output.append('i'+h+'\t\n')
+          output.append(h+'\n')
+      linetype = "include"
+    if '[H2]' in l.upper():
+      l= replace(l,'\[h2\]','')
+      l= replace(l,'\[/h2\]','')
+      #l = l.strip()
+      h2 = figleth2(l)
+      for h in h2:
+        if h.strip()!="":
+          #output.append('i'+h+'\t\n')
+          output.append(h+'\n')
+      linetype = "include"
+    # used to insert an empty line
+    if '[EMPTY]' in l.upper():
+      linetype = "include"
+      output.append('\n')
+    #CENTER, center align text
+    if '[CENTER]' in l.upper():
+      l= replace(l,'\[center\]','')
+      l= replace(l,'\[/center\]','')
+      l = l.strip()
+      l = l.center(WIDTH,' ')
+    #RIGHT, right align text
+    if '[RIGHT]' in l.upper():
+      l= replace(l,'\[right\]','')
+      l= replace(l,'\[/right\]','')
+      l = l.strip()
+      l = l.rjust(WIDTH,' ')
+    # marks a file, gopher item
+    if '[FILE]' in l.upper():
+      l = replace(l,'\[file\]','0')
+      l = replace(l,'\[/file\]','')
+    # marks a binfile, gopher item
+    if '[BIN]' in l.upper():
+      l = replace(l,'\[bin\]','9')
+      l = replace(l,'\[/bin\]','')
+      linetype = 'bin'
+    # marks an image gopher item
+    if '[IMG]' in l.upper():
+      l = replace(l,'\[img\]','I')
+      l = replace(l,'\[/img\]','')
+      linetype = 'bin'
+    # marks a directory gopher item
+    if '[DIR]' in l.upper():
+      l = replace(l,'\[dir\]','1')
+      l = replace(l,'\[/dir\]','')
+    # marks  a url gopher item
+    if '[URL]' in l.upper():
+      l = replace(l,'\[url\]','1')
+      l = replace(l,'\[/url\]','')
+    # inserts a tab character
+    l = replace(l,'\[tab\]','\t')
+    
+    if l.strip()[0:1]=='=':
+      linetype = "shell"
+      l = l
+    elif l.strip()[0:1]=='0':
+      linetype = "textfile"
+      l = l
+    elif l.strip()[0:1]=='1':
+      linetype = "dir"
+      l = l+'\t'
+    elif l.strip()[0:1]=='!':
+      linetype = "title"
+      l = l+'\t'
+    elif linetype == "":
+      if ismap:
+        #l = 'i'+l+'\t'
+        l = l
+      else:
+        l = l
+    if linetype != 'include':
+      output.append(l+'\n')
+    i += 1  
+  f = open(dfile,'w+')
+  f.writelines(output)
+  f.close
 
 class Editor():
   def __init__(self):
@@ -676,30 +847,25 @@ class Editor():
     status += "^H:Help|"
     status += '^' if self.modified else ' '
     status += self.filename[:20].ljust(20,'.') + '|' + str(self.total_lines) + ' lines'+'|'+self.msg 
-    
-    ps = '|'+PLATFORM[:3].upper()
-    
-    i = 0
-    ps += '|'
-    while i < 4:
-      if self.active == i: ps += '#'
-      elif len(self.windows[i]['buff'][0])>0: ps += str(i+1)
-      else: ps += '.'
-      i+=1
-      
-    
-    ps += '|'+self.filetype.upper()
-    
+    ps = ''
+    if self.COLS>70:
+      ps += '|'+PLATFORM[:3].upper()
+      i = 0
+      ps += '|'
+      while i < 4:
+        if self.active == i: ps += '#'
+        elif len(self.windows[i]['buff'][0])>0: ps += str(i+1)
+        else: ps += '.'
+        i+=1
+      ps += '|'+self.filetype.upper()
+      if self.autoindent:
+        ps+="|AUTO|"
+      else:
+        ps+="|----|"
     if self.insert:
       ps+="|INS"
     else:
       ps+="|OVR"
-      
-    if self.autoindent:
-      ps+="|AUTO|"
-    else:
-      ps+="|----|"
-    
     ps += str(self.width).rjust(3)+'|'
     if self.cury in self.bookmarks:
       ps += 'B'
@@ -737,7 +903,7 @@ class Editor():
     return ljustansi(line,self.COLS)
 
   def print_buffer(self):
-    print_buffer = '\x1b[?25l'
+    print_buffer = '\x1b[?25l'+COLOR_TEXT
     print_buffer += '\x1b[H\x1b[2J'
     for row in range(self.bottom):
       buffrow = row + self.offy;
@@ -754,7 +920,15 @@ class Editor():
       print_buffer += '\x1b[K'
       print_buffer += '\r\n'
     return print_buffer
-    
+  
+  def getyn(self,text):
+    cmd = self.getkey(text,'YN')
+    if chr(cmd) in 'Yy':
+      return True
+    else:
+      return False
+  
+  
   def pause(self):
     c = -1
     while (c == -1): c = self.screen.getch()
@@ -1052,7 +1226,7 @@ class Editor():
             'uncomment','date','dt','line','repeat','rep','indent','ind','delete','del',\
             'copy','cp','paste','pt','get','insert','mci','box','menul','menuc','saveas',
             'spell','open','load','bash','justify','just','shell','bookmark','book','format',\
-            'fmt','crlf']
+            'fmt','crlf','gopher']
             self.dorecommend(word,pos+len(prompt),RECOMEND=recomended)
           else:
             if keyword[:keyword.find(' ')] in ['ALIGN','AL']:
@@ -1134,7 +1308,10 @@ class Editor():
               recomended=['menu [header] [option1] [option2] .. : inserts a menu box']
               self.dorecommend(word,pos+len(prompt),True,RECOMEND=recomended)
             elif keyword[:keyword.find(' ')] in ['SAVEAS']:
-              recomended=['saveas <type> : saves/export the doc in a different format']
+              recomended=['saveas <gopher|ansi> : saves/export the doc in a different format']
+              self.dorecommend(word,pos+len(prompt),True,RECOMEND=recomended)
+            elif keyword[:keyword.find(' ')] in ['GOPHER']:
+              recomended=['gopher <link|file|image|dir> : helps you insert a gopher item']
               self.dorecommend(word,pos+len(prompt),True,RECOMEND=recomended)
       except: pass
     self.update_screen()
@@ -1178,6 +1355,8 @@ class Editor():
       self.strip(params)
     elif cmd == 'SAVEAS':
       self.saveas(params)
+    elif cmd == 'GOPHER':
+      self.gopher(params)
     elif cmd == 'ASCII': # ASCII [char-num]
       self.insert_char(chr(int(params)))
     elif cmd == 'ANSI': # ANSI Color
@@ -1247,9 +1426,79 @@ class Editor():
    
     self.insert_paragraph(line)
     
+  def gopher(self,params):
+    global GOPHER
+    p = params.upper()
+    if p == 'LINK' or p == 'URL': # inserts a link to another host
+      '[url]'+editname+'[tab][/tab]'+editpath+'[tab][/tab]'+edittext+'[tab][/tab]'+editport+'[/url]'
+      txt = self.command_prompt('enter text: ','')
+      dr  = self.command_prompt('enter path: ','/path')
+      url = self.command_prompt('enter host only: ','localhost')
+      prt = self.command_prompt('enter port: ','70')
+      if txt and url and dr and prt:
+        self.insert_str('[dir]'+txt+'[tab]'+dr+'[tab]'+url+'[tab]'+prt+'[/dir]')
+    elif p == 'DIR': # directory link
+      txt = self.command_prompt('enter text: ','')
+      dr  = self.command_prompt('enter path: ','')
+      if txt and dr:
+        self.insert_str('[dir]'+txt+'[tab]'+dr+'[tab][host][tab][port][/dir]')
+    elif p == 'FILE': # local text file
+      txt = self.command_prompt('enter text: ','')
+      fl  = self.command_prompt('enter filename: ','')
+      if txt and fl:
+        self.insert_str('[file]'+txt+'[tab]'+fl+'[/file]')
+    elif p == 'INCLUDE' or p == 'INC': # include bbcode for local text file
+      txt = self.command_prompt('enter text: ','')
+      fl  = self.command_prompt('enter filename: ','')
+      if txt and fl:
+        self.insert_str('[include]'+txt+'[tab]'+fl+'[/include]')
+    elif p == 'BIN': # local binary file
+      txt = self.command_prompt('enter text: ','')
+      fl  = self.command_prompt('enter filename: ','')
+      if txt and fl:
+        self.insert_str('[bin]'+txt+'[tab]'+fl+'[/bin]')
+    elif p == 'IMAGE' or p == 'IMG': #local image link
+      txt = self.command_prompt('enter text: ','')
+      fl  = self.command_prompt('enter filename: ','')
+      if txt and fl:
+        self.insert_str('[img]'+txt+'[tab]'+fl+'[/img]')
+    elif p == 'EMPTY': 
+      self.insert_str('[empty]')
+    elif p == 'HR' or p == 'RULER': 
+      self.insert_str('[hr]')
+    elif p == 'DATE': 
+      self.insert_str('[date]')
+    elif p == 'TIME': 
+      self.insert_str('[time]')
+    elif p == 'H1': 
+      self.insert_str('[h1][/h1]')
+    elif p == 'H2': 
+      self.insert_str('[h2][/h2]')
+    elif p == 'CENTER': 
+      self.insert_str('[center][/center]')
+    elif p == 'RIGHT': 
+      self.insert_str('[right][/right]')
+    else:
+      self.show_prompt('unrecognized gopher item...')
+  
   def saveas(self,params):
+    global GOPHER
     params = params.upper()
     if params == 'ANSI': self.saveas_ansi()
+    elif params == 'GOPHER':
+      self.show_prompt('saving current document...')
+      self.save_file('')
+      gp = self.command_prompt('save [gopher] filename: ','gopher.map')
+      ismap = False
+      if self.getyn('is the file going to be a map file? y/n '):
+        ismap = True
+      host = self.command_prompt('enter hostname: ',GOPHER['host'])
+      port = self.command_prompt('enter port: ',GOPHER['port'])
+      if os.path.isfile(self.filename) and host and port:
+        GOPHER['host'] = host
+        GOPHER['port'] = port
+        gophermap(self.filename,gp,ismap)
+        self.show_prompt('gopher file exported!')        
 
   def box(self,params,align=1):
     parts = params.split()
@@ -1375,11 +1624,16 @@ class Editor():
     elif params == 'CLS': self.insert_str(ansi['clear'])
     elif params == 'GOTO': self.insert_str(ansi['goto'])
     elif params == 'REVERSE': self.insert_str(colors['reverse'])
-    else:
-      try:
+    elif params.isdigit():
+      i = int(params)
+      if i<0: return
+      if i in range(16):
         self.insert_str(colors[int(params)])
-      except:
-        pass
+      else:
+        fg = i % 16
+        bg = i // 16
+        self.insert_str(colors[fg]+colorsbg[bg])
+
         
   def get_file(self,params):
     params = params.split()
@@ -1661,8 +1915,7 @@ class Editor():
 
   def load_file(self):
     if self.modified:
-      ans = self.getkey('current document is modified. save? y/n','YN')
-      if chr(ans) in 'Yy':
+      if self.getyn('current document is modified. save? y/n'):
         self.save_file('')
     
     fn = self.command_prompt('load file: ')
@@ -1725,7 +1978,7 @@ class Editor():
       f.write(content)
    
   def save_file(self,params):
-    fn = self.command_prompt('filename: ',self.filename)
+    fn = self.command_prompt('save ['+self.filetype+'] filename: ',self.filename)
     if fn:
       self.filename = fn 
       self.quicksave_file()
@@ -1760,13 +2013,11 @@ class Editor():
     for i in range(4):
       if i == self.active:
         if self.modified:
-          cmd = self.getkey('save current text before exit? y/n: ','YN')
-          if chr(cmd) in 'Yy':
+          if self.getyn('save current text before exit? y/n: '):
             self.quicksave_file()
       else:
         if self.windows[i]['modified']:
-          cmd = self.getkey('save text from window['+str(i)+'] before exit? y/n: ','YN')
-          if chr(cmd) in 'Yy':
+          if self.getyn('save text from window['+str(i)+'] before exit? y/n: '):
             fn = self.command_prompt('window['+str(i)+'] filename: ',self.windows[i]['filename'])
             if fn:
               self.save_buff(self.windows[i]['buff'],fn)
@@ -2086,6 +2337,35 @@ if __name__ == '__main__':
 #`    gopher: saves the document as a gophermap file
 #`    ansi  : saves the document as an ansi file, will ask for SAUCE data.
 #`  --------------------------------------------------------------------------
+#`  
+#`  gopher <link|file|image|dir|url|bin|img|include|shell> 
+#`  
+#`    With this command you can insert gophermap items in a more easy way, as 
+#`    the program asks you about the link, host, port etc. and then formats 
+#`    the text to be inserted appropriate.
+#`    
+#`    link or url : enters a gopher link
+#`    file        : inserts a local text file as a link
+#`    image or img: inserts a local image file as a link
+#`    bin         : inserts a local binary file as a link
+#`    include     : inserts the text from a local text file, it's helpful to 
+#`                  use for headers/footers in map files
+#`    dir         : inserts a local directory as a link
+#`    shell       : inserts a shell command item
+#`    empty       : inserts an empty line item
+#`    date        : inserts a date bbcode
+#`    time        : inserts a time bbcode
+#`    center      : inserts a center text bbcode
+#`    right       : inserts a right bbcode
+#`    h1          : inserts a h1/header bbcode
+#`    h2          : inserts a h2/header bbcode
+#`    hr          : inserts a hr/ruler bbcode
+#`    
+#`    Example: gopher image
+#`    Will ask you about the path and filename of the image and then insert a 
+#`    formatted string, that when the file is exported into a gophermap file, 
+#`    it will have the correct format.
+#`  --------------------------------------------------------------------------
 #`
 #`  ----------
 #`  Status Bar
@@ -2130,6 +2410,15 @@ if __name__ == '__main__':
 #`  have  the  source  code at your hands and change everything on the fly! You
 #`  can  change colors, syntax highlighting scheme, commands, anything! You can
 #`  even edit the script from inside the editor.
+#`  
+#`  Another thing you may notice, is that the whole editor is in one! file. Even
+#`  the  help  text  is included inside the script. I wanted to be this way, for
+#`  portability of the program. This way, you can get the program to any system,
+#`  use  it  and  then  perhaps  delete it or throw it inside a script folder of
+#`  yours, with no external files to be left in the system.
+#`    
+#`  The  editor  is  usable  also  under  Termux in Android phones. In case your
+#`  screen is less than 70 columns, the status bar will show less information.
 #`  ----------------------------------------------------------------------------
 #`  
 #`  
@@ -2147,9 +2436,14 @@ if __name__ == '__main__':
 #`  pip install spellchecker
 #`  pip install pyperclip
 #`  
-#`  Try run it, it should be ok. You could remove the spell suggestion and 
-#`  the use of the clipboard, if you want to have a version of the editor 
-#`  with only default Python packages.
+#`  There  is a case that the spellchecker library doesn't work for you and when
+#`  you  try to run the program, you will get an error about the indexer lib. In
+#`  that  case  instead  of  installing  the  spellchecker  library, install the
+#`  pyspellchecker library.
+#`    
+#`  Try  run  it, it should be ok. You could remove the spell suggestion and the
+#`  use  of the clipboard, if you want to have a version of the editor with only
+#`  default Python packages.
 #`  ----------------------------------------------------------------------------
 #`
 #`
@@ -2178,3 +2472,43 @@ if __name__ == '__main__':
 #`  - Insert predefined ASCII boxes
 #`  - Create ASCII menus with a simple command
 #`  - Can handle and navigate Bookmarks, for easy navigation in the text
+#`  - You can write Gopher map files, with BBCODEs, more below..
+#`  ----------------------------------------------------------------------------
+#`
+#`  
+#`  ------
+#`  Gopher
+#`  ------
+#`  
+#`  With  CliEd,  you  can  edit  and  create  Gophermap files! It uses a set of
+#`  BBCodes  to  insert specific gopher items, like files, images, links etc. to
+#`  make  gophermap  creation easier. If you learn and know the bbcodes, you can
+#`  speed  up  the  process, but until you memorize them, you can use the gopher
+#`  <item>, command to insert the bbcodes. You will find a list of the supported
+#`  items in the section about the GOPHER command.
+#`    
+#`  When you finish editing the page/text, you enter the: SAVEAS GOPHER command,
+#`  which  will  guide  you  to enter the needed information and at the end will
+#`  export  the  gophermap  file,  as a gopher server wants it to be, with tabs,
+#`  server address, port etc.
+#`    
+#`  You can then move the file to your gopher site and use it. If you don't know
+#`  what Gopher is... google it! :) You can also download a copy of lynx browser
+#`  and visit my gopher site like: lynx gopher://andr01d.zapto.org:7070
+#`    
+#`  If you like textmode, you will love Gopher!  
+#`  ----------------------------------------------------------------------------
+#`
+#`  
+#`  -------
+#`  Credits
+#`  -------
+#`  
+#`  The core of this editor was found from a github project (link below). So 
+#`  many thanks to the orginal author who open sourced his project.
+#`  
+#`  Kudos to the author of the justify function, very useful and rare to find 
+#`  a working solution like this. You can get the function here:
+#`  https://github.com/KonstantinosAng/CodeWars/blob/master/Python/
+#`  %5B4%20kyu%5D%20Text%20align%20justify.py
+#`  
