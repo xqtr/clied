@@ -537,7 +537,12 @@ class Editor():
     self.lexers = { 'py': PythonLexer, 'c': CLexer, 'bb':BBCodeLexer, 'pas':DelphiLexer, \
                     'htm':HtmlLexer, 'bas':QBasicLexer, 'sh':BashLexer, 'mpl':MPLLexer, \
                     'mpy':MPYLexer}
-                    
+    #comment symbols for filetypes. 'type':'single','multi-start','multi-end',has-multi
+    self.comments = {'py':["#","'''","'''",True],'mpy':["#","'''","'''",True],\
+                      'pas':['//','{','}',True],'mpl':['//','(*','*)',True],\
+                      'sh':['#','#','#',False],'bas':["'","'","'",False],'bb':['#','#','#',False],
+                      'htm':['','<!--','-->',True],'c':['//','/*','*/',True]
+                      }
     self.windows = []
     self.active = 0
     for i in range(5):
@@ -558,6 +563,12 @@ class Editor():
       'bookmarks':[],
       'bookindex':0
       })
+    #undo stuff
+    self.uindex = 0
+    self.umax   = 10
+    self.ucount = 0
+    self.usteps = 20
+    self.ustates = []
 
   def reset(self):
     self.curx = 0
@@ -577,6 +588,40 @@ class Editor():
     self.search_index = 0
     self.bookmarks = []
     self.bookindex = 0
+  
+  def addstate(self):
+    self.ucount = 0
+    self.uindex += 1
+    if self.uindex >= self.umax: 
+      del self.ustates[0]
+      self.uindex = self.umax - 1
+    elif self.uindex < self.umax:
+      del self.ustates[self.uindex:]
+    state = [self.buff.copy(),self.curx,self.cury,self.offx,self.offy,self.total_lines]
+    self.ustates.append(state)
+    #self.msg = str(self.uindex)+'/'+str(len(self.ustates))
+  
+  def undo(self):
+    if self.uindex == 0: return
+    if len(self.ustates) == 0: return
+    self.ucount = 0
+    self.uindex -= 1
+    self.curx = self.ustates[self.uindex][1]
+    self.cury = self.ustates[self.uindex][2]
+    self.offx = self.ustates[self.uindex][3]
+    self.offy = self.ustates[self.uindex][4]
+    self.total_lines = self.ustates[self.uindex][5]
+    del self.buff[:]
+    self.buff = self.ustates[self.uindex][0].copy()
+    #self.msg = str(self.uindex)+'/'+str(len(self.ustates))
+    self.scroll_buffer()
+    self.update_screen()
+    
+  def addstep(self,step=1):
+    self.ucount += step
+    if self.ucount >= self.usteps:
+      self.addstate()
+      self.ucount = 0
     
   def is_separator(self, c):
     for ch in self.seperators:
@@ -586,6 +631,7 @@ class Editor():
   
   def insert_char(self, c):
     global spell
+    self.addstep()
     if self.insert:
       if len(self.buff[self.cury])+1<=self.width:
         self.buff[self.cury].insert(self.curx, c)
@@ -604,10 +650,12 @@ class Editor():
   def del_char(self):
     if self.cury == len(self.buff)-1 and len(self.buff[self.cury])==0: return
     if self.curx<=len(self.buff[self.cury])-1:
+      self.addstep()
       del self.buff[self.cury][self.curx]
       self.modified += 1
     #elif self.curx == 0 and self.cury and len(self.buff[self.cury])==0:
     elif self.cury and len(self.buff[self.cury])==0:
+      self.addstate()
       oldline = self.buff[self.cury][self.curx:]
       del self.buff[self.cury]
       #self.cury -= 1
@@ -615,6 +663,7 @@ class Editor():
       self.buff[self.cury] += oldline
       self.total_lines -= 1
     elif self.curx == len(self.buff[self.cury]) and self.cury<len(self.buff)-1:
+      self.addstate();
       oldline = self.buff[self.cury+1]
       del self.buff[self.cury+1]
       #self.cury -= 1
@@ -623,9 +672,11 @@ class Editor():
   
   def delete_char(self):
     if self.curx:
+      self.addstep()
       self.curx -= 1
       del self.buff[self.cury][self.curx]
     elif self.curx == 0 and self.cury:
+      self.addstate()
       oldline = self.buff[self.cury][self.curx:]
       del self.buff[self.cury]
       self.cury -= 1
@@ -858,9 +909,9 @@ class Editor():
         i+=1
       ps += '|'+self.filetype.upper()
       if self.autoindent:
-        ps+="|AUTO|"
+        ps+="|AUTO"
       else:
-        ps+="|----|"
+        ps+="|----"
     if self.insert:
       ps+="|INS"
     else:
@@ -1019,18 +1070,19 @@ class Editor():
     elif c == ctrl(ord('n')): self.new_file()
     elif c == ctrl(ord('s')): self.save_file('')
     elif c == ctrl(ord('f')): self.search()
-    elif c == ctrl(ord('e')): self.del_eol()
+    elif c == ctrl(ord('e')): self.addstate();self.del_eol()
     elif c == ctrl(ord('g')): self.find_next()
-    elif c == ctrl(ord('d')): self.delete_line()
-    elif c == ctrl(ord('w')): self.delb_word()
+    elif c == ctrl(ord('d')): self.addstate();self.delete_line()
+    elif c == ctrl(ord('w')): self.addstate();self.delb_word()
     elif c == ctrl(ord('h')): self.inhelp()
-    elif c == ctrl(ord('t')): self.strip('right 1')
+    elif c == ctrl(ord('t')): self.addstate();self.strip('right 1')
     elif c == ctrl(ord('b')): self.toggle_bookmark()
     elif c == ctrl(ord('r')): self.command(self.history[-1]) # repeat last command
-    elif c == ctrl(ord('v')): self.paste_lines('')
+    elif c == ctrl(ord('v')): self.addstate();self.paste_lines('')
     elif c == ctrl(ord('c')): self.copy_lines('1')
     elif c == ctrl(ord('a')): self.autoindent=not self.autoindent
     elif c == ctrl(ord('l')): self.jumpto()
+    elif c == ctrl(ord('z')): self.undo()
     elif c == curses.KEY_F1: self.changewindow(0)
     elif c == curses.KEY_F2: self.changewindow(1)
     elif c == curses.KEY_F3: self.changewindow(2)
@@ -1330,6 +1382,8 @@ class Editor():
     cmd = cmd.split()
     params = " ".join(cmd[1:])
     cmd = cmd[0].upper()
+    
+    self.addstate()
     
     if cmd == 'TIME':
       self.insert_str(datetime.datetime.now().strftime("%H:%M"))
@@ -1706,21 +1760,43 @@ class Editor():
       self.insert_str(datetime.date.today().strftime("%Y/%m/%d"))
     
   def comment(self,params):
-    try: # format: [rows] [+/-]
-      start_row = self.cury
-      
-      if params.split()[0].upper() == 'ALL':
+    # format: [rows] [+/-]
+    start_row = self.cury
+    params = params.split()
+    if params[0]=='+' or params[0] == '-': 
+      end_row = self.cury
+      dir = params[0]
+    else:
+      if params[0].upper() == 'ALL':
         start_row = 0
         end_row = len(self.buff)
       else:
-        end_row = self.cury + int(params.split()[0])
+        end_row = self.cury + int(params[0]) - 1
+        if end_row >= len(self.buff): end_row = len(self.buff)-1
       
-      dir = params.split()[1]
-      for row in range(start_row, end_row):
-        if dir == '+': self.buff[row].insert(0, '#')
-        if dir == '-': del self.buff[row][0]
-      self.modified += 1        
-    except: pass
+      dir = params[1]
+    
+    if start_row == end_row: #single line
+      if dir == '+': self.buff[start_row].insert(0, self.comments[self.filetype][0])
+      if dir == '-': 
+        for i in range(len(self.comments[self.filetype][0])-1):
+          del self.buff[start_row][0]
+      self.modified += 1
+    else:
+      if self.comments[self.filetype][3]:
+        if dir == '+':
+          self.buff[start_row].insert(0, self.comments[self.filetype][1])
+          self.buff[end_row].insert(len(self.buff[end_row]), self.comments[self.filetype][2])
+          self.modified += end_row - start_row + 1
+        else:
+          for i in range(len(self.comments[self.filetype][0])-1): del self.buff[start_row][0]
+          for i in range(len(self.comments[self.filetype][0])-1): del self.buff[end_row][-1]
+      else:
+        for row in range(start_row, end_row):
+          if dir == '+': self.buff[row].insert(0, self.comments[self.filetype][0])
+          if dir == '-': del self.buff[row][0]
+        self.modified += 1
+    
   
   def delete_lines(self,param):
     param = param.split()
