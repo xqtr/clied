@@ -54,6 +54,11 @@
   in the command prompt, press ESC to cancel and/or leave the command prompt.
   Below  is  a  list  with  all  supported commands and their paramaters. The
   commands are case insensitive.
+  
+  Except from the commands, if you enter a simple math expression, it will 
+  calculate the result and insert it in the text. It's very useful, when 
+  you want to calculate a color attribute like: 14+(4*16), yellow on red 
+  background ;)
   --------------------------------------------------------------------------
   
   align <left|right|center> [lines] 
@@ -163,6 +168,12 @@
   
     Loads a text document to current window. After the command a prompt 
     will ask for the filename.
+  --------------------------------------------------------------------------
+  
+  duplicate
+  dupe
+  
+    Duplicates current window document, to the first available empty one.
   --------------------------------------------------------------------------
   
   crlf <win|dos|linux|unix>
@@ -429,7 +440,10 @@
   - Insert predefined ASCII boxes
   - Create ASCII menus with a simple command
   - Can handle and navigate Bookmarks, for easy navigation in the text
-  - You can write Gopher map files, with BBCODEs, more below..
+  - You can write Gopher map files, with BBCODEs, more below...
+  - Can make simple calculations and insert the result into the text, from 
+    the command prompt.
+  
   ----------------------------------------------------------------------------
 
   

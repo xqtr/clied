@@ -44,7 +44,9 @@ COLOR_SCHEME = {
 
 COMPILE = {
   'py':'python3 -m py_compile ',
-  'pas':'fpc -gl '
+  'pas':'fpc -gl ',
+  'mpl':'/home/x/mys47b/mplc ',
+  'mpy':'/home/x/mys47b/mplc '
 }
 
 ansi = {
@@ -962,11 +964,15 @@ class Editor():
         if rowlen < 0: rowlen = 0;
         if rowlen > self.COLS: rowlen = self.COLS;
         try:
+          line = ''.join([c if c!=chr(27) else '^' for c in self.buff[buffrow][self.offx: self.offx + rowlen]])
           print_buffer += highlight(
-          ''.join([c if c!=chr(27) else '^' for c in self.buff[buffrow][self.offx: self.offx + rowlen]]),
+          #''.join([c if c!=chr(27) else '^' for c in self.buff[buffrow][self.offx: self.offx + rowlen]]),
+          line,
           self.lexers[self.filetype](),
           TerminalFormatter(bg='dark', colorscheme=COLOR_SCHEME))[:-1]
-        except: print_buffer += ''.join([c if c!=chr(27) else '^' for c in self.buff[buffrow][self.offx: self.offx + rowlen]])
+        except:
+          print_buffer += ''.join([c if c!=chr(27) else '^' for c in self.buff[buffrow][self.offx: self.offx + rowlen]])
+          
       print_buffer += '\x1b[K'
       print_buffer += '\r\n'
     return print_buffer
@@ -1109,47 +1115,51 @@ class Editor():
     elif c == 545: self.skip_word(545)
     elif c == ord('\n'): self.insert_line()
     elif ctrl(c) != c: self.insert_char(chr(c))
-
+  
+  def savetowindow(self,num):
+    self.windows[num]['buff'].clear()
+    #self.windows[num]['buff'] = self.buff.copy()
+    self.windows[num]['buff'] = self.buff[:]
+    self.windows[num]['filename'] = self.filename
+    self.windows[num]['filetype'] = self.filetype
+    self.windows[num]['curx'] = self.curx
+    self.windows[num]['cury'] = self.cury
+    self.windows[num]['offx'] = self.offx
+    self.windows[num]['offy'] = self.offy
+    self.windows[num]['indent'] = self.autoindent
+    self.windows[num]['suggest'] = self.autosuggest
+    self.windows[num]['tab'] = self.tab
+    self.windows[num]['insert'] = self.insert
+    self.windows[num]['total'] = self.total_lines
+    self.windows[num]['modified'] = self.modified
+    self.windows[num]['width'] = self.width
+    self.windows[num]['bookmarks'] = self.bookmarks.copy()
+    self.windows[num]['bookindex'] = self.bookindex
+  
   def changewindow(self,win):
     if win == self.active: return
     #save previous state
-    self.windows[self.active]['buff'].clear()
-    self.windows[self.active]['buff'] = self.buff.copy()
-    self.windows[self.active]['filename'] = self.filename
-    self.windows[self.active]['filetype'] = self.filetype
-    self.windows[self.active]['curx'] = self.curx
-    self.windows[self.active]['cury'] = self.cury
-    self.windows[self.active]['offx'] = self.offx
-    self.windows[self.active]['offy'] = self.offy
-    self.windows[self.active]['indent'] = self.autoindent
-    self.windows[self.active]['suggest'] = self.autosuggest
-    self.windows[self.active]['tab'] = self.tab
-    self.windows[self.active]['insert'] = self.insert
-    self.windows[self.active]['total'] = self.total_lines
-    self.windows[self.active]['modified'] = self.modified
-    self.windows[self.active]['width'] = self.width
-    self.windows[self.active]['bookmarks'] = self.bookmarks.copy()
-    self.windows[self.active]['bookindex'] = self.bookindex
+    self.savetowindow(self.active)
     #activate new window
     self.active = win
     self.buff.clear()
     self.bookmarks.clear()
-    self.buff = self.windows[self.active]['buff'].copy()
-    self.filename = self.windows[self.active]['filename']
-    self.filetype = self.windows[self.active]['filetype']
-    self.curx = self.windows[self.active]['curx']
-    self.cury = self.windows[self.active]['cury']
-    self.offx = self.windows[self.active]['offx']
-    self.offy = self.windows[self.active]['offy']
-    self.autoindent = self.windows[self.active]['indent']
-    self.autosuggest = self.windows[self.active]['suggest']
-    self.tab = self.windows[self.active]['tab']
-    self.insert = self.windows[self.active]['insert']
-    self.total_lines = self.windows[self.active]['total']
-    self.modified = self.windows[self.active]['modified']
-    self.width = self.windows[self.active]['width']
-    self.bookmarks = self.windows[self.active]['bookmarks'].copy()
-    self.bookindex = self.windows[self.active]['bookindex']
+    self.buff = self.windows[win]['buff'].copy()
+    self.filename = self.windows[win]['filename']
+    self.filetype = self.windows[win]['filetype']
+    self.curx = self.windows[win]['curx']
+    self.cury = self.windows[win]['cury']
+    self.offx = self.windows[win]['offx']
+    self.offy = self.windows[win]['offy']
+    self.autoindent = self.windows[win]['indent']
+    self.autosuggest = self.windows[win]['suggest']
+    self.tab = self.windows[win]['tab']
+    self.insert = self.windows[win]['insert']
+    self.total_lines = self.windows[win]['total']
+    self.modified = self.windows[win]['modified']
+    self.width = self.windows[win]['width']
+    self.bookmarks = self.windows[win]['bookmarks'].copy()
+    self.bookindex = self.windows[win]['bookindex']
     
     self.scroll_buffer()
     self.update_screen()
@@ -1277,7 +1287,7 @@ class Editor():
             'uncomment','date','dt','line','repeat','rep','indent','ind','delete','del',\
             'copy','cp','paste','pt','get','insert','mci','box','menul','menuc','saveas',
             'spell','open','load','bash','justify','just','shell','bookmark','book','format',\
-            'fmt','crlf','gopher','help']
+            'fmt','crlf','gopher','help','duplicate','dupe']
             self.dorecommend(word,pos+len(prompt),RECOMEND=recomended)
           else:
             if keyword[:keyword.find(' ')] in ['ALIGN','AL']:
@@ -1358,6 +1368,9 @@ class Editor():
             elif keyword[:keyword.find(' ')] in ['MENUC','MENUL']:
               recomended=['menu [header] [option1] [option2] .. : inserts a menu box']
               self.dorecommend(word,pos+len(prompt),True,RECOMEND=recomended)
+            elif keyword[:keyword.find(' ')] in ['DUPLICATE','DUPE']:
+              recomended=['duplicate : duplicates current document to a new window']
+              self.dorecommend(word,pos+len(prompt),True,RECOMEND=recomended)
             elif keyword[:keyword.find(' ')] in ['SAVEAS']:
               recomended=['saveas <gopher|ansi> : saves/export the doc in a different format']
               self.dorecommend(word,pos+len(prompt),True,RECOMEND=recomended)
@@ -1408,6 +1421,8 @@ class Editor():
       self.strip(params)
     elif cmd == 'SAVEAS':
       self.saveas(params)
+    elif cmd == 'DUPLICATE' or cmd == 'DUPE':
+      self.duplicate()
     elif cmd == 'GOPHER':
       self.gopher(params)
     elif cmd == 'ASCII': # ASCII [char-num]
@@ -1457,7 +1472,7 @@ class Editor():
     elif cmd == 'GET':
       self.get_file(params)
     else:
-      self.show_prompt('Command not recognized!')
+      if not self.calculator(command): self.show_prompt('Command not recognized!')
 
   def box2(self,params):
     if params=='1':
@@ -1536,6 +1551,14 @@ class Editor():
     else:
       self.show_prompt('unrecognized gopher item...')
   
+  def duplicate(self):
+    for i in range(4):
+      if self.windows[i]['buff']==[[]] and i!=self.active:
+        self.savetowindow(i)
+        self.show_prompt('duplicated to window['+str(i+1)+']...')
+        return
+    self.show_prompt("all windows are not empty, couldn't duplicate document")
+    
   def saveas(self,params):
     global GOPHER
     params = params.upper()
@@ -1917,6 +1940,17 @@ class Editor():
     line = ''.join(self.buff[self.cury])
     line = line[:self.curx]
     self.buff[self.cury]=list(line)
+    
+  def calculator(self,calc):
+    #calc = self.command_prompt('input expression: ')
+    if not calc: return
+    sym = '0123456789.-=+/*%() '
+    for c in calc: 
+      if c not in sym:
+        #self.show_prompt('unacceptable character: '+c)
+        return False
+    self.insert_str(str(eval(calc)))
+    return True
       
   def strip(self,param):
     #indent = self.command_prompt('indent:')
@@ -2174,6 +2208,11 @@ if __name__ == '__main__':
 #`  in the command prompt, press ESC to cancel and/or leave the command prompt.
 #`  Below  is  a  list  with  all  supported commands and their paramaters. The
 #`  commands are case insensitive.
+#`  
+#`  Except from the commands, if you enter a simple math expression, it will 
+#`  calculate the result and insert it in the text. It's very useful, when 
+#`  you want to calculate a color attribute like: 14+(4*16), yellow on red 
+#`  background ;)
 #`  --------------------------------------------------------------------------
 #`  
 #`  align <left|right|center> [lines] 
@@ -2283,6 +2322,12 @@ if __name__ == '__main__':
 #`  
 #`    Loads a text document to current window. After the command a prompt 
 #`    will ask for the filename.
+#`  --------------------------------------------------------------------------
+#`  
+#`  duplicate
+#`  dupe
+#`  
+#`    Duplicates current window document, to the first available empty one.
 #`  --------------------------------------------------------------------------
 #`  
 #`  crlf <win|dos|linux|unix>
@@ -2549,7 +2594,10 @@ if __name__ == '__main__':
 #`  - Insert predefined ASCII boxes
 #`  - Create ASCII menus with a simple command
 #`  - Can handle and navigate Bookmarks, for easy navigation in the text
-#`  - You can write Gopher map files, with BBCODEs, more below..
+#`  - You can write Gopher map files, with BBCODEs, more below...
+#`  - Can make simple calculations and insert the result into the text, from 
+#`    the command prompt.
+#`  
 #`  ----------------------------------------------------------------------------
 #`
 #`  
