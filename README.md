@@ -56,6 +56,11 @@
   in the command prompt, press ESC to cancel and/or leave the command prompt.
   Below  is  a  list  with  all  supported commands and their paramaters. The
   commands are case insensitive.
+  
+  Except from the commands, if you enter a simple math expression, it will 
+  calculate the result and insert it in the text. It's very useful, when 
+  you want to calculate a color attribute like: 14+(4*16), yellow on red 
+  background ;)
   --------------------------------------------------------------------------
   
   align <left|right|center> [lines] 
@@ -67,6 +72,23 @@
     Example: align center 10
     Aligns the text in center, from the current line and for the next 10 
     lines.
+  --------------------------------------------------------------------------
+  
+  regex <search> <replace> [lines]
+  
+    This is a regular expression search and replace function. You can give 
+    a regex pattern to find and replace with a given string, for n lines or 
+    the whole document.
+    
+    If the parameters have space in them, put them inside double-quotes.
+    
+    Example: regex ^ # all
+    It will insert a hash character in front of each line, for the whole 
+    document. The ^ char. in regex means "in the beginning of the line"
+    
+    Example: regex "[oO]" "0" all
+    Will replace all letters o and O with number 0, for a more elit theme 
+    ;) Double-Quotes are also acceptable.
   --------------------------------------------------------------------------
     
   justify <lines> 
@@ -165,6 +187,12 @@
   
     Loads a text document to current window. After the command a prompt 
     will ask for the filename.
+  --------------------------------------------------------------------------
+  
+  duplicate
+  dupe
+  
+    Duplicates current window document, to the first available empty one.
   --------------------------------------------------------------------------
   
   crlf <win|dos|linux|unix>
@@ -325,7 +353,40 @@
     formatted string, that when the file is exported into a gophermap file, 
     it will have the correct format.
   --------------------------------------------------------------------------
+  
+  
+  ---------------------------------------  
+  Color numbers for MCI and ANSI commands
+  ---------------------------------------
+  
+  00 : Sets the current foreground to Black
+  01 : Sets the current foreground to Dark Blue
+  02 : Sets the current foreground to Dark Green
+  03 : Sets the current foreground to Dark Cyan
+  04 : Sets the current foreground to Dark Red
+  05 : Sets the current foreground to Dark Magenta
+  06 : Sets the current foreground to Brown
+  07 : Sets the current foreground to Grey
+  08 : Sets the current foreground to Dark Grey
+  09 : Sets the current foreground to Light Blue
+  10 : Sets the current foreground to Light Green
+  11 : Sets the current foreground to Light Cyan
+  12 : Sets the current foreground to Light Red
+  13 : Sets the current foreground to Light Magenta
+  14 : Sets the current foreground to Yellow
+  15 : Sets the current foreground to White
 
+  16 : Sets the current background to Black
+  17 : Sets the current background to Blue
+  18 : Sets the current background to Green
+  19 : Sets the current background to Cyan
+  20 : Sets the current background to Red
+  21 : Sets the current background to Magenta
+  22 : Sets the current background to Brown
+  23 : Sets the current background to Grey
+  --------------------------------------------------------------------------
+  
+  
   ----------
   Status Bar
   ----------
@@ -431,7 +492,10 @@
   - Insert predefined ASCII boxes
   - Create ASCII menus with a simple command
   - Can handle and navigate Bookmarks, for easy navigation in the text
-  - You can write Gopher map files, with BBCODEs, more below..
+  - You can write Gopher map files, with BBCODEs, more below...
+  - Can make simple calculations and insert the result into the text, from 
+    the command prompt.
+  
   ----------------------------------------------------------------------------
 
   

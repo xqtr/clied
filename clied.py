@@ -13,6 +13,7 @@ import subprocess
 import datetime
 from time import sleep
 import string
+import shlex
 import pyperclip
 import socket
 import re
@@ -1287,11 +1288,14 @@ class Editor():
             'uncomment','date','dt','line','repeat','rep','indent','ind','delete','del',\
             'copy','cp','paste','pt','get','insert','mci','box','menul','menuc','saveas',
             'spell','open','load','bash','justify','just','shell','bookmark','book','format',\
-            'fmt','crlf','gopher','help','duplicate','dupe']
+            'fmt','crlf','gopher','help','duplicate','dupe','regex']
             self.dorecommend(word,pos+len(prompt),RECOMEND=recomended)
           else:
             if keyword[:keyword.find(' ')] in ['ALIGN','AL']:
               recomended=['align <left|right|center> [lines] : align text for line(s)']
+              self.dorecommend(word,pos+len(prompt),True,RECOMEND=recomended)
+            elif keyword[:keyword.find(' ')] in ['REGEX']:
+              recomended=['regex <find> <replace> [lines] : regex replace/insert string']
               self.dorecommend(word,pos+len(prompt),True,RECOMEND=recomended)
             elif keyword[:keyword.find(' ')] in ['FORMAT','FMT']:
               recomended=['format <lower|caps|upper|title> [lines] : change capitalization for line(s)']
@@ -1413,6 +1417,8 @@ class Editor():
       self.setfiletype(params.lower())
     elif cmd == 'ALIGN' or cmd == 'AL':
       self.align(params)
+    elif cmd == 'REGEX':
+      self.regex(params)
     elif cmd == 'FORMAT' or cmd == 'FMT':
       self.format(params)
     elif cmd == 'JUSTIFY' or cmd == 'JUST':
@@ -1656,6 +1662,10 @@ class Editor():
       elif code=='DA': self.insert_str(datetime.date.today().strftime("%c"))
       elif code=='UX': self.insert_str(socket.gethostname())
       elif code=='UY': self.insert_str(get_ip())
+      elif code=='[0': self.insert_str(ansi['hide'])
+      elif code=='[1': self.insert_str(ansi['show'])
+      elif code=='CL': self.insert_str(ansi['clear'])
+      
       else:
         self.show_prompt('Wrong MCI code. Aborting...')
         break
@@ -1793,9 +1803,11 @@ class Editor():
       if params[0].upper() == 'ALL':
         start_row = 0
         end_row = len(self.buff)
-      else:
+      elif params[0].isdigit():
         end_row = self.cury + int(params[0]) - 1
         if end_row >= len(self.buff): end_row = len(self.buff)-1
+      else:
+        end_row = 1
       
       dir = params[1]
     
@@ -1830,9 +1842,12 @@ class Editor():
     if end == 'ALL':
       start_row = 0
       end_row = len(self.buff)
-    else:
+    elif end.isdigit():
       start_row = self.cury
       end_row = self.cury + int(end)
+    else:
+      self.show_prompt('delete: wrong value for [lines].')
+      return     
       
     for row in range(start_row, end_row):
       if row>len(self.buff)-1: break
@@ -1847,9 +1862,12 @@ class Editor():
     if end == 'ALL':
       start_row = 0
       end_row = len(self.buff)
-    else:
+    elif end.isdigit():
       start_row = self.cury
       end_row = self.cury + int(end)
+    else:
+      self.show_prompt('copy: wrong value for [lines].')
+      return
     
     content = ''
     for row in range(start_row, end_row):
@@ -1876,9 +1894,12 @@ class Editor():
     if end == 'ALL':
       start_row = 0
       end_row = len(self.buff)
-    else:
+    elif end.isdigit():
       start_row = self.cury
       end_row = self.cury + int(end)
+    else:
+      self.show_prompt('align: wrong value for [lines].')
+      return
       
     for row in range(start_row, end_row):
       if row>len(self.buff)-1: break
@@ -1889,6 +1910,33 @@ class Editor():
         self.buff[row]=list(line.rjust(self.width,char))
       elif altype == 'CENTER':
         self.buff[row]=list(line.center(self.width,char).rstrip())
+      self.modified += 1
+      
+  def regex(self,param):
+    param = shlex.split(param)
+    if len(param)<2:
+      self.show_prompt('regex: not enough paramaters...')
+      return
+    end = 1
+    search = param[0]
+    rep    = param[1]
+    if len(param)==3:
+      end = param[2].upper()
+    
+    if end == 'ALL':
+      start_row = 0
+      end_row = len(self.buff)
+    elif end.isdigit():
+      start_row = self.cury
+      end_row = self.cury + int(end)
+    else:
+      self.show_prompt('regex: wrong value for [lines].')
+      return
+      
+    for row in range(start_row, end_row):
+      if row>len(self.buff)-1: break
+      line = ''.join(self.buff[row]).strip()
+      self.buff[row]=list(re.sub(search,rep,line))
       self.modified += 1
       
   def format(self, param):
@@ -1904,9 +1952,12 @@ class Editor():
     if end == 'ALL':
       start_row = 0
       end_row = len(self.buff)
-    else:
+    elif end.isdigit():
       start_row = self.cury
       end_row = self.cury + int(end)
+    else:
+      self.show_prompt('format: wrong value for [lines].')
+      return
       
     for row in range(start_row, end_row):
       if row>len(self.buff)-1: break
@@ -1926,8 +1977,11 @@ class Editor():
       if params.split()[0].upper() == 'ALL':
         start_row = 0
         end_row = len(self.buff)
-      else:
+      elif params.split()[0].isdigit():
         end_row = self.cury + int(params.split()[0])
+      else:
+        self.show_prompt('justify: wrong value for [lines].')
+        return
     else: end_row = self.cury+1
     content = ''
     for row in range(start_row, end_row):
@@ -1968,10 +2022,12 @@ class Editor():
     if end == 'ALL':
       start_row = 0
       end_row = len(self.buff)
-    else:
+    elif end.isdigit():
       start_row = self.cury
       end_row = self.cury + int(end)
-      
+    else:
+      self.show_prompt('strip: wrong value for [lines].')
+      return
     
     for row in range(start_row, end_row):
       line = ''.join(self.buff[row])
@@ -2102,9 +2158,12 @@ class Editor():
       if end == 'ALL':
         start_row = 0
         end_row = len(self.buff)
-      else:
+      elif end.isdigit():
         try: end_row = self.cury + int(end)
         except: end_row = self.cury + 1
+      else:
+        self.show_prompt('extract: wrong value for [lines].')
+        return
 
       if end_row > len(self.buff)-1: end_row = len(self.buff)-1
       with open(fn, 'w', newline=crlf()) as f:
