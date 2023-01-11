@@ -1,6 +1,6 @@
 # clied
 ```
-  
+    
   --------------------------------------------------------------------------
   CliEdit v1.0 - Made by XQTR of Another Droid BBS // andr01d.zapto.org:9999
   --------------------------------------------------------------------------
@@ -264,6 +264,12 @@
   
     Turns on/off spell suggestions. You can't insert a suggestion, only see 
     them.
+  --------------------------------------------------------------------------
+  
+  code <on|off> 
+  
+    Turns on/off code hints, if available for the file type of the 
+    document.
   --------------------------------------------------------------------------
   
   ansi <param>

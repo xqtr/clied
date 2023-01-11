@@ -264,6 +264,12 @@
     them.
   --------------------------------------------------------------------------
   
+  code <on|off> 
+  
+    Turns on/off code hints, if available for the file type of the 
+    document.
+  --------------------------------------------------------------------------
+  
   ansi <param>
   
     Inserts an ANSI Code for the given parameter. The paramater can be a 

@@ -13,6 +13,7 @@ import subprocess
 import datetime
 from time import sleep
 import string
+import json
 import shlex
 import pyperclip
 import socket
@@ -103,6 +104,25 @@ colors = {
   23:"\033[47m"
 }
 
+colornames = {
+  0:"black",
+  1:"blue",
+  2:"green",
+  3:"cyan",
+  4:"red",
+  5:"magenta",
+  6:"brown",
+  7:"grey",
+  8:"darkgrey",
+  9:"lightblue",
+  10:"lightgreen",
+  11:"lightcyan",
+  12:"lightred",
+  13:"lightmagenta",       
+  14:"yellow",
+  15:"white"
+}
+
 colorsbg = {
   0:"\033[1;30m",
   1:"\033[1;34m",
@@ -116,7 +136,9 @@ colorsbg = {
 
 COLOR_TEXT = colors[7]+colors[16]
 COLOR_STATUS = colors[0]+colors[23]
-COLOR_SUGGEST = colors[0]+colors[22]
+COLOR_SUGGEST_NORMAL = colors[0]+colors[22]
+COLOR_SUGGEST_CODE = colors[0]+colors[18]
+COLOR_SUGGEST_ERROR = colors[0]+colors[20]
 
 BLOG_POST = '''===============================================================================
  Title  :
@@ -367,6 +389,9 @@ def stripansi(line):
   return ansi_escape.sub('', line)
 # left justifies a line that may contain ansi codes, so the actual text has the preferred width
 def ljustansi(line,w):
+  dx = len(line) - len(stripansi(line))
+  if len(stripansi(line))>w:
+    return line[:w+dx]
   while len(stripansi(line)) < w: line+=' '
   return line
 # gets the actual local ip
@@ -525,6 +550,7 @@ class Editor():
     self.msg=""
     self.autoindent = True
     self.autosuggest = False
+    self.autohint = False
     self.modified = False
     self.tab = 2
     self.seperators = " ,.()+-/*=~%<>[];{}"
@@ -533,6 +559,7 @@ class Editor():
     self.statusy = self.ROWS
     self.suggesty = self.ROWS-1
     self.insert = True
+    self.code_hints = {}
     curses.raw()
     curses.noecho()
     self.history = []
@@ -559,6 +586,7 @@ class Editor():
       'insert':True,
       'buff':[[]],
       'total':1,
+      'hint':False,
       'modified':False,
       'filetype':'txt',
       'offx':0,
@@ -587,6 +615,8 @@ class Editor():
     self.total_lines = 0
     self.filename = 'untitled.txt'
     self.modified = 0
+    self.code_hints.clear()
+    self.filetype = 'txt'
     self.search_results = []
     self.search_index = 0
     self.bookmarks = []
@@ -934,26 +964,61 @@ class Editor():
     
   def print_suggest(self):
     #check spelling of last word
-    line = '\x1b['+str(self.suggesty)+';1H'+COLOR_SUGGEST
+    line = '\x1b['+str(self.suggesty)+';1H'
     ln = ''.join(self.buff[self.cury])
-    if ln[-1:] != ' ': return ljustansi(line,self.COLS)
+    #if ln[-1:] != ' ': return ljustansi(line,self.COLS)
     
-    ln = ln.strip()
-    if not ln: return ljustansi(line,self.COLS)
-    
-    wrd = ln[ln[:-1].rfind(' ')+1:] #find the last word after having a space at the end
+    #ln = ln.strip()
+    if not ln: return ljustansi(COLOR_SUGGEST_NORMAL+line,self.COLS)
+    #find the last word after having a space at the end
+    i = self.curx-1
+    while ln[i] not in self.seperators:
+      i -= 1
+      if i<0:
+        i=0
+        break
+    part1 = ln[i:self.curx]
+    i = self.curx-1
+    while ln[i] not in self.seperators:
+      i += 1
+      if i>=len(self.buff[self.cury])-1:
+        break
+    part2 = ln[self.curx:i]
+    wrd = str(part1+part2).strip()
     # check if word is very big or has symbols inside, if so drop the function as it will take too much time
-    if len(wrd)>20: return ljustansi(line,self.COLS)
-    for s in self.seperators:
-      if s in wrd:
-        return ljustansi(line,self.COLS)
-
-    suggs = spell.candidates(wrd)
-    if not suggs: return ljustansi(line,self.COLS)
-    for w in suggs:
-      line += w+' '
-    #str(spell.candidates(wrd))
-    return ljustansi(line,self.COLS)
+    a = len(wrd)
+    if a>20 and a<3 and not wrd: return ljustansi(COLOR_SUGGEST_NORMAL+line,self.COLS)
+    #for s in self.seperators:
+    #  if s in wrd:
+    #    return ljustansi(COLOR_SUGGEST_NORMAL+line,self.COLS)
+    if self.autohint:
+      wrd = wrd.lower()
+      res = []
+      for key in self.code_hints:
+        if key == wrd:
+          line += self.code_hints[key]
+          return ljustansi(COLOR_SUGGEST_CODE+line,self.COLS)
+        elif key.startswith(wrd): 
+          res.append(key)
+      if len(res)>1:
+        for r in res: line += r+' '
+      else:
+        if wrd in self.code_hints:
+          line += self.code_hints[wrd]
+        elif len(res)==1: 
+          line += res[0]
+      return ljustansi(COLOR_SUGGEST_CODE+line,self.COLS)
+    else:
+      suggs = spell.candidates(wrd)
+      if suggs: suggs = list(suggs)
+      else: return ljustansi(COLOR_SUGGEST_NORMAL+line,self.COLS)
+      for w in suggs:
+        line += w+' '
+      #str(spell.candidates(wrd))
+      if len(suggs) == 1 and suggs[0] == wrd:
+        return ljustansi(COLOR_SUGGEST_NORMAL+line,self.COLS)
+      else:
+        return ljustansi(COLOR_SUGGEST_ERROR+line,self.COLS)
 
   def print_buffer(self):
     print_buffer = '\x1b[?25l'+COLOR_TEXT
@@ -984,7 +1049,6 @@ class Editor():
       return True
     else:
       return False
-  
   
   def pause(self):
     c = -1
@@ -1028,7 +1092,7 @@ class Editor():
     self.cury = 0
     self.scroll_buffer()
   
-  def set_suggest(self,value):
+  def set_suggestline(self,value):
     self.autosuggest = value
     if self.autosuggest:
       self.bottom = self.ROWS - 2
@@ -1051,7 +1115,7 @@ class Editor():
 
   def resize_window(self):
     self.ROWS, self.COLS = self.screen.getmaxyx()
-    self.set_suggest(self.autosuggest)
+    self.set_suggestline(self.autosuggest or self.autohint)
     self.screen.refresh()
     self.update_screen()
     
@@ -1129,6 +1193,7 @@ class Editor():
     self.windows[num]['offy'] = self.offy
     self.windows[num]['indent'] = self.autoindent
     self.windows[num]['suggest'] = self.autosuggest
+    self.windows[num]['hint'] = self.autohint
     self.windows[num]['tab'] = self.tab
     self.windows[num]['insert'] = self.insert
     self.windows[num]['total'] = self.total_lines
@@ -1154,6 +1219,7 @@ class Editor():
     self.offy = self.windows[win]['offy']
     self.autoindent = self.windows[win]['indent']
     self.autosuggest = self.windows[win]['suggest']
+    self.autohint = self.windows[win]['hint']
     self.tab = self.windows[win]['tab']
     self.insert = self.windows[win]['insert']
     self.total_lines = self.windows[win]['total']
@@ -1284,10 +1350,10 @@ class Editor():
           keyword = str(word).upper()
           if keyword.find(' ') == -1:
             recomended = ['time','save','extract','exit','quit','width','filetype','fl', \
-            'align','al','strip','st','ascii','ansi','clear','reset','commend','cm',\
+            'align','al','strip','st','ascii','ansi','attr','clear','reset','commend','cm',\
             'uncomment','date','dt','line','repeat','rep','indent','ind','delete','del',\
             'copy','cp','paste','pt','get','insert','mci','box','menul','menuc','saveas',
-            'spell','open','load','bash','justify','just','shell','bookmark','book','format',\
+            'spell','code','open','load','bash','justify','just','shell','bookmark','book','format',\
             'fmt','crlf','gopher','help','duplicate','dupe','regex']
             self.dorecommend(word,pos+len(prompt),RECOMEND=recomended)
           else:
@@ -1354,11 +1420,17 @@ class Editor():
             elif keyword[:keyword.find(' ')] in ['SPELL']:
               recomended=['spell <on|off> : turn on/off spell checking']
               self.dorecommend(word,pos+len(prompt),True,RECOMEND=recomended)
+            elif keyword[:keyword.find(' ')] in ['CODE']:
+              recomended=['code <on|off> : turn on/off code hints, if available']
+              self.dorecommend(word,pos+len(prompt),True,RECOMEND=recomended)
             elif keyword[:keyword.find(' ')] in ['ANSI']:
               recomended=['black','blue','red','grey','...','lightblue','lightred','...','white','reset','cls','reverse']
               self.dorecommend(word,pos+len(prompt),True,RECOMEND=recomended)
             elif keyword[:keyword.find(' ')] in ['MCI']:
               recomended=['mci <code> : inserts a mystic bbs MCI code, if supported']
+              self.dorecommend(word,pos+len(prompt),True,RECOMEND=recomended)
+            elif keyword[:keyword.find(' ')] in ['ATTR']:
+              recomended=['attr <code> : expands a color attribute to string and fg/bg nums']
               self.dorecommend(word,pos+len(prompt),True,RECOMEND=recomended)
             elif keyword[:keyword.find(' ')] in ['BOX']:
               recomended=['box <type> : inserts an ASCII box']
@@ -1435,6 +1507,8 @@ class Editor():
       self.insert_char(chr(int(params)))
     elif cmd == 'ANSI': # ANSI Color
       self.ansistring(params)
+    elif cmd == 'ATTR': # expand attribute to string
+      self.attr_string(params)
     elif cmd == 'HELP': 
       self.inhelp()
     elif cmd == 'MCI': 
@@ -1444,7 +1518,9 @@ class Editor():
     elif cmd == 'MENUL': 
       self.box(params,2)
     elif cmd == 'SPELL':   
-      self.dosuggest(params)
+      self.dosuggest('spell',params)
+    elif cmd == 'CODE':   
+      self.dosuggest('code',params)
     elif cmd == 'BOX': 
       self.box2(params)
     elif cmd == 'CRLF': 
@@ -1619,12 +1695,26 @@ class Editor():
       self.insert_strln(line)
       self.modified+=1
   
-  def dosuggest(self,params):
+  def dosuggest(self,tp,params):
     val = params.upper().strip()
-    if val == 'ON':
-      self.set_suggest(True)
-    else:
-      self.set_suggest(False)
+    if tp.upper() == 'SPELL':
+      if val == 'ON':
+        self.autosuggest = True
+        self.set_suggestline(True)
+      else:
+        self.autosuggest = False
+        self.set_suggestline(False)
+    elif tp.upper() == 'CODE':
+      if val == 'ON':
+        if len(self.code_hints) == 0:
+          self.show_prompt('no hints were loaded! perhaps change filetype.')
+          return
+        self.autohint = True
+        self.set_suggestline(True)
+      else:
+        self.autohint = False
+        self.set_suggestline(False)
+    
     self.update_screen()
           
   def mci(self,params):
@@ -1688,6 +1778,15 @@ class Editor():
       self.insert_paragraph(BLOG_POST)
     elif cmd == 'BASH' or cmd == 'SCRIPT':
       self.insert_paragraph(SCRIPT_BODY)
+    
+  def attr_string(self,params):
+    if not params.isdigit() or not params:
+      self.show_prompt('attr: paramater not valid!')
+      return
+    i = int(params)
+    fg = i % 16
+    bg = i // 16
+    self.insert_str(str(fg)+'/'+colornames[fg]+' text on '+str(bg)+'/'+colornames[bg]+' background')
       
   def ansistring(self,params):
     params = params.upper()
@@ -1750,8 +1849,6 @@ class Editor():
           self.insert_strln(line)
       except:
         self.show_prompt('Error decoding file...')
-    
-      
 
   def setfiletype(self,typeof):
     typeof = typeof.lower()
@@ -1776,8 +1873,14 @@ class Editor():
    
     if typeof in self.lexers:
       self.filetype = typeof
+      
+      if os.path.isfile(typeof+'.jsn'):
+        with open(typeof+'.jsn') as json_file:
+          self.code_hints.clear()
+          self.code_hints = json.load(json_file)
     else:
-       self.filetype = 'NONE'
+       self.filetype = 'txt'
+       self.code_hints.clear()
        self.highlight = False
       
   def insert_date(self,params):
@@ -2100,7 +2203,7 @@ class Editor():
         for row in content[:-1]:
           self.buff.append([c for c in row])
     except: self.buff.append([])
-    if filename:
+    if filename and os.path.isfile(filename):
       self.filename = filename
       self.filetype = self.filename.split('.')[-1]
       PLATFORM = isdosfile(filename)
@@ -2205,7 +2308,7 @@ if __name__ == '__main__':
   def main(stdscr):
     editor = Editor()
     if len(sys.argv) >= 2: editor.open_file(sys.argv[1])
-    else: editor.open_file('')
+    else: editor.open_file('untitled.txt')
     editor.start()
 
   os.environ['ESCDELAY'] = "25"
@@ -2283,6 +2386,23 @@ if __name__ == '__main__':
 #`    Example: align center 10
 #`    Aligns the text in center, from the current line and for the next 10 
 #`    lines.
+#`  --------------------------------------------------------------------------
+#`  
+#`  regex <search> <replace> [lines]
+#`  
+#`    This is a regular expression search and replace function. You can give 
+#`    a regex pattern to find and replace with a given string, for n lines or 
+#`    the whole document.
+#`    
+#`    If the parameters have space in them, put them inside double-quotes.
+#`    
+#`    Example: regex ^ # all
+#`    It will insert a hash character in front of each line, for the whole 
+#`    document. The ^ char. in regex means "in the beginning of the line"
+#`    
+#`    Example: regex "[oO]" "0" all
+#`    Will replace all letters o and O with number 0, for a more elit theme 
+#`    ;) Double-Quotes are also acceptable.
 #`  --------------------------------------------------------------------------
 #`    
 #`  justify <lines> 
@@ -2460,6 +2580,12 @@ if __name__ == '__main__':
 #`    them.
 #`  --------------------------------------------------------------------------
 #`  
+#`  code <on|off> 
+#`  
+#`    Turns on/off code hints, if available for the file type of the 
+#`    document.
+#`  --------------------------------------------------------------------------
+#`  
 #`  ansi <param>
 #`  
 #`    Inserts an ANSI Code for the given parameter. The paramater can be a 
@@ -2547,7 +2673,40 @@ if __name__ == '__main__':
 #`    formatted string, that when the file is exported into a gophermap file, 
 #`    it will have the correct format.
 #`  --------------------------------------------------------------------------
+#`  
+#`  
+#`  ---------------------------------------  
+#`  Color numbers for MCI and ANSI commands
+#`  ---------------------------------------
+#`  
+#`  00 : Sets the current foreground to Black
+#`  01 : Sets the current foreground to Dark Blue
+#`  02 : Sets the current foreground to Dark Green
+#`  03 : Sets the current foreground to Dark Cyan
+#`  04 : Sets the current foreground to Dark Red
+#`  05 : Sets the current foreground to Dark Magenta
+#`  06 : Sets the current foreground to Brown
+#`  07 : Sets the current foreground to Grey
+#`  08 : Sets the current foreground to Dark Grey
+#`  09 : Sets the current foreground to Light Blue
+#`  10 : Sets the current foreground to Light Green
+#`  11 : Sets the current foreground to Light Cyan
+#`  12 : Sets the current foreground to Light Red
+#`  13 : Sets the current foreground to Light Magenta
+#`  14 : Sets the current foreground to Yellow
+#`  15 : Sets the current foreground to White
 #`
+#`  16 : Sets the current background to Black
+#`  17 : Sets the current background to Blue
+#`  18 : Sets the current background to Green
+#`  19 : Sets the current background to Cyan
+#`  20 : Sets the current background to Red
+#`  21 : Sets the current background to Magenta
+#`  22 : Sets the current background to Brown
+#`  23 : Sets the current background to Grey
+#`  --------------------------------------------------------------------------
+#`  
+#`  
 #`  ----------
 #`  Status Bar
 #`  ----------
