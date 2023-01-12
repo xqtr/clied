@@ -1,6 +1,6 @@
 # clied
 ```
-    
+  
   --------------------------------------------------------------------------
   CliEdit v1.0 - Made by XQTR of Another Droid BBS // andr01d.zapto.org:9999
   --------------------------------------------------------------------------
@@ -491,6 +491,7 @@
   - Support syntax highlight for many languages and also Mystic BBS, MPY and 
     MPS. You can also add your own and/or extend the ones used.
   - Spell suggestions and on the fly help for commands
+  - Supports Code hints, fully customizable, included files for MPL/MPY
   - Apply functions to blocks of text
   - Extract block of text in external file and clipboard\
   - Insert text from external file or even from a downloaded file in the 
@@ -501,7 +502,8 @@
   - You can write Gopher map files, with BBCODEs, more below...
   - Can make simple calculations and insert the result into the text, from 
     the command prompt.
-  
+  - Regular Expression replace strings
+  - and more...  
   ----------------------------------------------------------------------------
 
   

@@ -23,7 +23,7 @@ from spellchecker import SpellChecker
 #change the language to your liking: English - ‘en’, Spanish - ‘es’, French - ‘fr’,
 # Portuguese - ‘pt’, German - ‘de’, Russian - ‘ru’, Arabic - ‘ar’
 spell = SpellChecker(language='en')
-
+SCRIPT_DIR = os.path.dirname(os.path.realpath(sys.argv[0]))+os.sep
 GOPHER = {"host":"localhost","port":"70","width":76,"hr":"-"*76}
 PATHSEP = {"win32":"\r\n", 'linux':"\n" } 
 PLATFORM = sys.platform
@@ -949,7 +949,7 @@ class Editor():
       ps+="|INS"
     else:
       ps+="|OVR"
-    ps += str(self.width).rjust(3)+'|'
+    ps += str(self.width).rjust(4)+'|'
     if self.cury in self.bookmarks:
       ps += 'B'
     else:
@@ -1874,8 +1874,8 @@ class Editor():
     if typeof in self.lexers:
       self.filetype = typeof
       
-      if os.path.isfile(typeof+'.jsn'):
-        with open(typeof+'.jsn') as json_file:
+      if os.path.isfile(SCRIPT_DIR+typeof+'.jsn'):
+        with open(SCRIPT_DIR+typeof+'.jsn') as json_file:
           self.code_hints.clear()
           self.code_hints = json.load(json_file)
     else:
@@ -1992,6 +1992,7 @@ class Editor():
     if len(param)==2:
       end = param[1].upper()
     if len(param)==3:
+      end = param[1].upper()
       char = param[2]
     
     if end == 'ALL':
@@ -2314,7 +2315,7 @@ if __name__ == '__main__':
   os.environ['ESCDELAY'] = "25"
   curses.wrapper(main)
 
-#`  
+  
 #`  --------------------------------------------------------------------------
 #`  CliEdit v1.0 - Made by XQTR of Another Droid BBS // andr01d.zapto.org:9999
 #`  --------------------------------------------------------------------------
@@ -2805,6 +2806,7 @@ if __name__ == '__main__':
 #`  - Support syntax highlight for many languages and also Mystic BBS, MPY and 
 #`    MPS. You can also add your own and/or extend the ones used.
 #`  - Spell suggestions and on the fly help for commands
+#`  - Supports Code hints, fully customizable, included files for MPL/MPY
 #`  - Apply functions to blocks of text
 #`  - Extract block of text in external file and clipboard\
 #`  - Insert text from external file or even from a downloaded file in the 
@@ -2815,7 +2817,8 @@ if __name__ == '__main__':
 #`  - You can write Gopher map files, with BBCODEs, more below...
 #`  - Can make simple calculations and insert the result into the text, from 
 #`    the command prompt.
-#`  
+#`  - Regular Expression replace strings
+#`  - and more...  
 #`  ----------------------------------------------------------------------------
 #`
 #`  

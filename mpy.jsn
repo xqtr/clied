@@ -258,7 +258,6 @@
 "|OM":"|OM | Check if the user has System Operator access to the current message base, or is the owner of the current message",
 "|ON":"|ON | This command is True if the last message new scan had new messages read by the user.",
 "|OP":"|OP | Check the status of the user's post / call ratio.",
-"|OS":"|OS | This command is true when the user is connected via a securely encrypted connection to the BBS, such as SSH.",
 "|OV":"|OV | Returns True if the user has validated their e-mail address",
 "|OY":"|OY | Returns True if the last new message scan had new personal messages from the user.",
 "|O1":"|O1 | Returns True if the user posted during this call",
