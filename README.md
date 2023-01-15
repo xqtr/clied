@@ -1,6 +1,6 @@
 # clied
 ```
-  
+    
   --------------------------------------------------------------------------
   CliEdit v1.0 - Made by XQTR of Another Droid BBS // andr01d.zapto.org:9999
   --------------------------------------------------------------------------
@@ -38,6 +38,7 @@
           F4 : Change to Window #4
           F5 : Edit source code of this script
           F7 : Compile code in current window
+          F8 : Insert/Choose spell correction or Code Hint (see below)
           F9 : Go to previous bookmark
          F10 : Go to next bookmark 
          INS : Toggle Insert/Overwrite mode
@@ -360,6 +361,33 @@
     it will have the correct format.
   --------------------------------------------------------------------------
   
+  
+  -----------------------------------
+  Spell Correction and/or Hint insert
+  -----------------------------------
+  
+  CliEd has the ability for spell correction while typing. To enable it you 
+  give the command "SPELL ON" in the command prompt. When enabled, while 
+  you type, the word you are in, is checked and if it's not found or has 
+  errors, the program suggest the most possible ones, closest to the one 
+  you are typing. To insert the proposed word, you press F8. If there is 
+  only one proposed word, it's been inserted automatically, otherwise you 
+  can choose from the words shown, by pressing again F8, until you select 
+  the one you want. Press ENTER to confirm it or ESC to cancel the 
+  operation.
+  
+  Same goes for code hints. You enable them by entering the command "CODE 
+  ON" in the command prompt. If the typed word/command is similar with 
+  others in the current filetype, it will give you a list with other 
+  commands, pressing F8 lets you choose from. If there is only one command 
+  that the word you are typing is part of, pressing F8 will complete the 
+  word you are typing. If the word is a command found in the code hints, 
+  pressing F8 will insert the whole code hint.
+  
+  You can only have one of them enabled, spell correction or code hints not 
+  both!
+  
+  --------------------------------------------------------------------------
   
   ---------------------------------------  
   Color numbers for MCI and ANSI commands

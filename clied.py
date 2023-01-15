@@ -139,6 +139,8 @@ COLOR_STATUS = colors[0]+colors[23]
 COLOR_SUGGEST_NORMAL = colors[0]+colors[22]
 COLOR_SUGGEST_CODE = colors[0]+colors[18]
 COLOR_SUGGEST_ERROR = colors[0]+colors[20]
+COLOR_FILL_SELECT = COLOR_SUGGEST_ERROR
+COLOR_FILL_NORMAL = COLOR_SUGGEST_CODE
 
 BLOG_POST = '''===============================================================================
  Title  :
@@ -551,7 +553,10 @@ class Editor():
     self.autoindent = True
     self.autosuggest = False
     self.autohint = False
+    self.suggestmode = 0 # 0: none, 1:code, 2:spell
     self.modified = False
+    self.fill_words = ''
+    self.fill_word = ''
     self.tab = 2
     self.seperators = " ,.()+-/*=~%<>[];{}"
     self.ROWS, self.COLS = self.screen.getmaxyx()
@@ -617,6 +622,8 @@ class Editor():
     self.modified = 0
     self.code_hints.clear()
     self.filetype = 'txt'
+    self.fill_words = ''
+    self.fill_word = ''
     self.search_results = []
     self.search_index = 0
     self.bookmarks = []
@@ -966,9 +973,6 @@ class Editor():
     #check spelling of last word
     line = '\x1b['+str(self.suggesty)+';1H'
     ln = ''.join(self.buff[self.cury])
-    #if ln[-1:] != ' ': return ljustansi(line,self.COLS)
-    
-    #ln = ln.strip()
     if not ln: return ljustansi(COLOR_SUGGEST_NORMAL+line,self.COLS)
     #find the last word after having a space at the end
     i = self.curx-1
@@ -985,28 +989,32 @@ class Editor():
         break
     part2 = ln[self.curx:i]
     wrd = str(part1+part2).strip()
+    self.fill_word = wrd
     # check if word is very big or has symbols inside, if so drop the function as it will take too much time
     a = len(wrd)
     if a>20 and a<3 and not wrd: return ljustansi(COLOR_SUGGEST_NORMAL+line,self.COLS)
-    #for s in self.seperators:
-    #  if s in wrd:
-    #    return ljustansi(COLOR_SUGGEST_NORMAL+line,self.COLS)
+    self.fill_words = ''
     if self.autohint:
       wrd = wrd.lower()
       res = []
       for key in self.code_hints:
         if key == wrd:
           line += self.code_hints[key]
+          self.fill_words = self.code_hints[key]
           return ljustansi(COLOR_SUGGEST_CODE+line,self.COLS)
         elif key.startswith(wrd): 
           res.append(key)
       if len(res)>1:
-        for r in res: line += r+' '
+        for r in res: 
+          line += r+' '
+          self.fill_words += r+' '
       else:
         if wrd in self.code_hints:
           line += self.code_hints[wrd]
+          self.fill_words = wrd
         elif len(res)==1: 
           line += res[0]
+          self.fill_words = res[0]
       return ljustansi(COLOR_SUGGEST_CODE+line,self.COLS)
     else:
       suggs = spell.candidates(wrd)
@@ -1014,11 +1022,9 @@ class Editor():
       else: return ljustansi(COLOR_SUGGEST_NORMAL+line,self.COLS)
       for w in suggs:
         line += w+' '
+        self.fill_words += w+' '
       #str(spell.candidates(wrd))
-      if len(suggs) == 1 and suggs[0] == wrd:
-        return ljustansi(COLOR_SUGGEST_NORMAL+line,self.COLS)
-      else:
-        return ljustansi(COLOR_SUGGEST_ERROR+line,self.COLS)
+      return ljustansi(COLOR_SUGGEST_NORMAL+line,self.COLS)
 
   def print_buffer(self):
     print_buffer = '\x1b[?25l'+COLOR_TEXT
@@ -1160,8 +1166,10 @@ class Editor():
     elif c == curses.KEY_F4: self.changewindow(3)
     elif c == curses.KEY_F7: self.compile()
     elif c == curses.KEY_F5: self.edit_script()
-    elif c == curses.KEY_F9:  self.goto_bookmark('-')
+    elif c == curses.KEY_F9: self.goto_bookmark('-')
+    elif c == curses.KEY_F8: self.insert_suggest()
     elif c == curses.KEY_F10: self.goto_bookmark('+')
+    elif c == curses.KEY_F12: self.toggle_hints()
     elif c == curses.KEY_IC: self.insert=not self.insert
     elif c == curses.KEY_DC: self.del_char()
     elif c == curses.KEY_RESIZE: self.resize_window()
@@ -1284,6 +1292,83 @@ class Editor():
     line += '\x1b['+str(self.statusy)+';'+str(cursorpos+1)+'H'+COLOR_STATUS
     sys.stdout.write(line)
     sys.stdout.flush()
+    
+  def prompt_choices(self,items):
+    wrds = items.split()
+    index = 0
+    indexmax = 0
+    done = False
+    line = ''
+    res = None
+    wordsum = 0
+    while done == False:
+      line = ''
+      wordsum = 0
+      for i,w in enumerate(wrds):
+        wordsum += len(w)+1
+        if wordsum>= self.COLS: break
+        if i == index:
+          line += COLOR_FILL_SELECT+w+' '+COLOR_FILL_NORMAL
+        else:
+          line += COLOR_FILL_NORMAL+w+' '
+        indexmax = i
+      #writetext('\x1b[1;1H'+str(index)+' // '+str(indexmax))
+      writetext('\x1b['+str(self.suggesty)+';1H'+ljustansi(line,self.COLS))
+      c = -1
+      while (c == -1): c = self.screen.getch()
+      if c == curses.KEY_F8:
+        index += 1
+        if index>indexmax: index = 0
+      elif c == 27:
+        done = True
+      elif c == ord('\n'):
+        res = wrds[index]
+        done = True
+    return res
+    
+  def set_suggestmode(self,mode):
+    self.suggestmode = mode
+    if self.suggestmode == 0:
+      self.autohint = False
+      self.autosuggest = False
+      self.set_suggestline(False)
+    elif self.suggestmode == 1:
+      self.autohint = True
+      self.autosuggest = False
+      self.set_suggestline(True)
+    elif self.suggestmode == 2:
+      self.autohint = False
+      self.autosuggest = True
+      self.set_suggestline(True)
+  
+  def toggle_hints(self):
+    self.suggestmode += 1
+    if self.suggestmode>2: self.suggestmode=0
+    self.set_suggestmode(self.suggestmode)
+    
+  def insert_suggest(self):
+    #writetext('\x1b['+str(self.suggesty)+';1H'+self.fill_words)
+    if self.autohint:
+      if "|" in self.fill_words:
+        self.insert_str(self.fill_words.split('|')[0][len(self.fill_word):])
+        return
+      wrds = self.fill_words.split()
+      if len(wrds) == 1:
+        self.insert_str(self.fill_words[len(self.fill_word):])
+        return
+      elif len(wrds) > 1:
+        w = self.prompt_choices(self.fill_words)
+        if w:
+          self.insert_str(w,False)
+    elif self.autosuggest:
+      wrds = self.fill_words.split()
+      if len(wrds) == 1:
+        self.insert_str(wrds[0],False)
+        return
+      elif len(wrds) > 1:
+        w = self.prompt_choices(self.fill_words)
+        if w:
+          self.insert_str(w,False)
     
   def command_prompt(self, prompt,value='',recomend=False):
     recomended = []
@@ -1458,10 +1543,10 @@ class Editor():
     self.screen.refresh()
     return word
     
-  def insert_str(self,s):
+  def insert_str(self,s,movetoend=True):
     for i,c in enumerate(s):
       self.buff[self.cury].insert(self.curx+i, c)
-    self.curx += len(s)
+    if movetoend: self.curx += len(s)
       
     
   def command(self,command):
@@ -1699,20 +1784,20 @@ class Editor():
     val = params.upper().strip()
     if tp.upper() == 'SPELL':
       if val == 'ON':
-        self.autosuggest = True
+        self.set_suggestmode(2)
         self.set_suggestline(True)
       else:
-        self.autosuggest = False
+        self.set_suggestmode(0)
         self.set_suggestline(False)
     elif tp.upper() == 'CODE':
       if val == 'ON':
         if len(self.code_hints) == 0:
           self.show_prompt('no hints were loaded! perhaps change filetype.')
           return
-        self.autohint = True
+        self.set_suggestmode(1)
         self.set_suggestline(True)
       else:
-        self.autohint = False
+        self.set_suggestmode(0)
         self.set_suggestline(False)
     
     self.update_screen()
@@ -1873,7 +1958,6 @@ class Editor():
    
     if typeof in self.lexers:
       self.filetype = typeof
-      
       if os.path.isfile(SCRIPT_DIR+typeof+'.jsn'):
         with open(SCRIPT_DIR+typeof+'.jsn') as json_file:
           self.code_hints.clear()
@@ -2207,6 +2291,12 @@ class Editor():
     if filename and os.path.isfile(filename):
       self.filename = filename
       self.filetype = self.filename.split('.')[-1]
+      #load code hints if present
+      if os.path.isfile(SCRIPT_DIR+self.filetype+'.jsn'):
+        with open(SCRIPT_DIR+self.filetype+'.jsn') as json_file:
+          self.code_hints.clear()
+          self.code_hints = json.load(json_file)
+      
       PLATFORM = isdosfile(filename)
       if '.txt' in filename: self.highlight = False
       else: self.highlight = True
